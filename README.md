@@ -1,6 +1,6 @@
 # Ombre Brain - Haven/Rain Fork
 
-这是 [P0luz/Ombre-Brain](https://github.com/P0luz/Ombre-Brain) 的二次开发版本。原版是一套给 Claude 使用的长期情绪记忆 MCP；这个 fork 在原版的 Markdown bucket、情绪坐标、遗忘曲线、MCP 工具、Dashboard、向量检索基础上，增加了 Gateway 自动注入、Persona State、关系天气、年轮评论、Supabase 同步和 ChatGPT Connector OAuth。
+这是 [P0luz/Ombre-Brain](https://github.com/P0luz/Ombre-Brain) 的二次开发版本。原版是一套给 Claude 使用的长期情绪记忆 MCP；这个 fork 在原版的 Markdown bucket、情绪坐标、遗忘曲线、MCP 工具、Dashboard、向量检索基础上，增加了 Gateway 自动注入、Persona State、关系天气、年轮评论、whisper、Supabase 同步和 ChatGPT Connector OAuth。
 
 本 README 以本 fork 的运行方式为准。原版 Docker Hub 预构建镜像、`docker-compose.user.yml`、Render / Zeabur 快速部署方式不包含这些 fork 能力，因此这里不再保留原版快速部署教程。
 
@@ -14,17 +14,33 @@
 
 ## 二次开发能力
 
+先分清楚：这些是原仓库已经有的基础，不算本 fork 的二次开发：
+
+| 原版已有基础 | 说明 |
+| --- | --- |
+| Markdown bucket | 每条记忆是 Obsidian 友好的 Markdown + YAML frontmatter |
+| Russell 情绪坐标 | `valence / arousal` 情绪打标 |
+| 遗忘曲线与归档 | inactive 记忆会衰减、归档，feel 不参与普通浮现 |
+| MCP 工具 | 原版已有 `breath / hold / grow / trace / pulse / dream` |
+| Dashboard | 原版已有桶列表、详情页、记忆网络、导入面板 |
+| 双通道检索 | fuzzy 关键词 + embedding 语义检索 |
+| 脱水与打标 | LLM 生成压缩正文、domain/tags/情绪等元数据 |
+| 历史导入 | Claude/ChatGPT/Markdown/文本导入为 bucket |
+
+下面才是这个 fork 额外加的能力：
+
 | 能力 | 说明 | 主要文件 |
 | --- | --- | --- |
 | OpenAI / Anthropic-compatible Gateway | 提供 `/v1/chat/completions`、`/v1/messages`、`/v1/models`，聊天客户端可直接接入 | `gateway.py` |
-| 自动记忆注入 | 请求转发前注入 Current Inner State、Relationship Weather、Recent Context、Recalled Memory、Related Memory | `gateway.py` |
+| 自动记忆注入 | 请求转发前按策略注入 Recent Context、Recalled Memory、Related Memory；Current Inner State / Relationship Weather 按间隔出现 | `gateway.py` |
 | Persona State Engine | 保存 Haven 回复后的全局人格、关系状态、每个 session 的短期心情 | `persona_engine.py` |
 | 召回冷却 | 按 `X-Ombre-Session-Id` 记录轮次和最近注入，避免同一条记忆反复贴脸 | `gateway_state.py` |
 | 多上游模型路由 | `gateway.upstreams` 可配置多个 OpenAI-compatible provider，按请求里的 `model` 路由 | `gateway.py`、`config.example.yaml` |
 | 工具调用和流式兼容 | 透传 `tools / tool_choice / tool_calls`，支持 SSE 流式响应，兼容部分 reasoning_content 场景 | `gateway.py` |
 | Memory Edge | 自动生成显式记忆关系边，Gateway 和 `breath()` 可补一跳相关记忆 | `memory_edges.py`、`reflection_engine.py` |
-| Relationship Weather | 日印象 / 周印象保存为 `type=feel`，Gateway 单独注入 | `reflection_engine.py` |
-| 年轮 comments | 将再次阅读某条记忆时的感受挂到源 bucket 的 `metadata.comments` 下 | `bucket_manager.py`、`server.py`、`dashboard.html` |
+| Relationship Weather | 日印象保存为 `type=feel`，Gateway 按间隔单独注入；周印象默认关闭 | `reflection_engine.py` |
+| 年轮 comments | 将再次阅读某条记忆时的感受挂到源 bucket 的 `metadata.comments` 下；旧 feel 可迁移成源记忆年轮 | `bucket_manager.py`、`server.py`、`dashboard.html` |
+| whisper | 无源碎碎念/悄悄话独立保存为 `type=feel + whisper` 标签，可用 `breath(domain="whisper")` 单独读取 | `server.py` |
 | Dashboard 编辑 | 支持正文编辑、Rain 年轮写入/删除、Persona 面板、网络图、手动 reflect | `dashboard.html`、`server.py` |
 | Haven-diary 摘记 | 完整日记留在 Haven-diary，Ombre 只提取少量长期有用记忆 | `reflection_engine.py` |
 | Supabase 同步 | 本地 bucket 与 Supabase memories 表同步，支持 tombstone 删除墓碑 | `scripts/sync_to_supabase.py` |
@@ -45,7 +61,7 @@ MCP / Dashboard / 写入 API
     -> 写 Markdown bucket
     -> 写 embeddings.db
     -> 自动 enrich 记忆与关系边
-    -> 生成日印象 / 周印象
+    -> 生成日印象（周印象默认关闭）
 
 维护脚本
   -> Supabase memories
@@ -61,7 +77,7 @@ bucket 是 Markdown 文件，正文保存记忆内容，frontmatter 保存元数
 | --- | --- |
 | `dynamic` | 普通事件、项目状态、关系片段 |
 | `permanent` | pinned / protected 长期准则 |
-| `feel` | Haven 主观感受、日印象、周印象 |
+| `feel` | Haven 主观感受、日印象、whisper |
 | `archive` | 已归档旧记忆 |
 | `metadata.comments` | 年轮：源记忆下的多次补充感受，不是独立 bucket |
 
@@ -83,9 +99,9 @@ memory_edges.jsonl  # 显式记忆关系边
 
 | 项 | 为什么要改 |
 | --- | --- |
-| 原版 Docker Hub 镜像 | 不包含本 fork 的 Gateway、Persona、Relationship Weather、年轮和 Supabase 脚本 |
+| 原版 Docker Hub 镜像 | 不包含本 fork 的 Gateway、Persona、Relationship Weather、年轮、whisper 和 Supabase 脚本 |
 | 原版 quick start | 只启动 MCP server，不会启动 Gateway，也不会分离 state 目录 |
-| `Haven / 小雨 / Rain / xiaoyu` | 这些名字在 prompt、测试、Dashboard 作者、示例内容里都有使用 |
+| `Haven / 小雨` 等亲密称呼、`Rain / xiaoyu` | 这些名字在 prompt、测试、Dashboard 作者、示例内容里都有使用 |
 | `persona.profile_id` | 默认是 `haven_xiaoyu`，通用部署应改成自己的稳定 id |
 | `X-Ombre-Session-Id` | 这是本 fork 自定义的 Gateway session，不是 OpenAI 标准头 |
 | 数据目录 | `buckets` 与 `state` 都要持久化；`state` 不要和 Obsidian 双向同步 |
@@ -255,6 +271,28 @@ Header: X-Ombre-Include-Favorite-Memory: 1
 
 这个文本开关会在转发给上游模型前移除。
 
+### Gateway 注入策略
+
+当前不是每轮把所有记忆块塞满。
+
+```text
+每个新 user turn：
+1. Recent Context
+2. Recalled Memory
+3. Related Memory
+
+第 1 / 15 / 30 ... 个新 user turn：
+4. Current Inner State
+5. Relationship Weather
+
+默认不自动注入：
+6. Core Memory
+7. Haven Favorite Memory
+```
+
+工具调用续接轮不重新做动态召回，也不写 recalled ids 冷却，避免一次工具链路中途换记忆。
+这么改是为了让记忆更安静：当前问题相关的记忆每轮都给，状态和偏爱类内容降低频率，减少重复、过度牵引和 prompt cache 波动。
+
 ### MCP / ChatGPT Connector
 
 本 fork 的 MCP 仍由 `ombre-brain` 服务提供：
@@ -281,18 +319,225 @@ Scopes: 留空
 | --- | --- |
 | `breath` | 只读浮现或检索记忆；默认不读 feel，可用 `domain="feel"` |
 | `read_bucket` | 精确读取完整 bucket，不刷新 last_active |
-| `hold` | 写单条长期记忆；`feel=True, source_bucket=...` 会写源记忆年轮 |
+| `hold` | 写单条长期记忆；`whisper=True` 写无源悄悄话；`feel=True` 是旧兼容入口 |
 | `grow` | 长内容摘记；不要把整篇日记默认拆进 Ombre |
-| `comment_bucket` | 给旧记忆追加 Haven 年轮 |
+| `comment_bucket` | 年轮主入口：给旧记忆追加 Haven 年轮 |
 | `trace` | 改 metadata、正文、resolved、delete 等 |
 | `pulse` | 系统状态和桶列表 |
 | `dream` | 自省入口，不替代日记 |
-| `reflect` | 生成 daily/weekly relationship_weather feel |
+| `resurface` | 只读浮现久未触碰的旧记忆 |
+| `reflect` | 生成 daily relationship_weather feel；weekly 默认关闭，只有显式启用 `reflection.weekly_enabled` 才会生成 |
 
-## Relationship Weather 与日记摘记
+### MCP 工具参数与返回
 
+#### `breath(...) -> str`
+
+输入：
+
+```text
+query: str = ""                 # 空=权重池浮现；有值=关键词+向量检索
+max_tokens: int = 10000
+domain: str = ""                # "feel" / "whisper" 有独立只读通道；其它值作为检索 domain filter
+valence: float = -1             # 0~1 时参与情绪检索/展示微调
+arousal: float = -1             # 0~1 时参与情绪检索
+max_results: int = 20           # 1~50
+include_related: bool = True
+related_per_memory: int = 1
+edge_min_confidence: float = 0.55
+include_core: bool = True
+core_limit: int = 3
+```
+
+返回：纯文本。
+
+```text
+无 query：可能返回 === 核心准则 === / === 浮现记忆 === / === 关联记忆 ===。
+有 query：返回匹配 bucket 的脱水摘要，含 [bucket_id:...]；会 touch 命中的普通 bucket。
+domain="feel"：返回 === 你留下的 feel ===，按 created 倒序列出 feel。
+domain="whisper"：返回 === 你留下的 whisper ===，只列 whisper 标签的 feel。
+无命中：返回 “权重池平静，没有需要处理的记忆。” 或 “未找到相关记忆。”。
+```
+
+#### `resurface(...) -> str`
+
+输入：
+
+```text
+max_results: int = 1
+include_archive: bool = True
+max_tokens: int = 800
+```
+
+返回：纯文本 `=== 久未触碰的旧记忆 ===`，包含 bucket id、标题、状态和正文片段。只读，不 touch，不刷新 `last_active`。
+
+#### `read_bucket(bucket_id) -> dict`
+
+输入：
+
+```text
+bucket_id: str
+```
+
+返回：
+
+```json
+{
+  "id": "bucket id",
+  "metadata": {"name": "...", "tags": [], "comments": []},
+  "content": "去掉 wikilink 后的正文",
+  "score": 12.34
+}
+```
+
+错误时返回 `{"error": "invalid bucket_id"}` 或 `{"error": "not found", "id": "..."}`。读取不 touch。
+
+#### `comment_bucket(...) -> dict`
+
+输入：
+
+```text
+bucket_id: str
+content: str
+author: str = "Haven"
+kind: str = "comment"
+valence: float = -1
+arousal: float = -1
+```
+
+返回：
+
+```json
+{
+  "status": "commented",
+  "id": "源 bucket id",
+  "comment": {"id": "comment id", "author": "Haven", "content": "..."},
+  "embedding_refreshed": true,
+  "metadata": {}
+}
+```
+
+用途：给已有 bucket 追加 Haven 年轮。它会 `touch+1` 源 bucket，刷新源 bucket embedding，不改正文，不把源 bucket 标为 `digested`。
+
+这是现在推荐的年轮入口。旧写法 `hold(feel=True, source_bucket=...)` 仍可用，但只作为兼容保留，不建议写在教程主路径里。
+
+#### `hold(...) -> str`
+
+输入：
+
+```text
+content: str
+tags: str = ""                  # 逗号分隔，替换给自动 tags 合并
+importance: int = 5             # 1~10
+pinned: bool = False
+feel: bool = False
+whisper: bool = False
+source_bucket: str = ""
+valence: float = -1
+arousal: float = -1
+```
+
+返回：纯文本状态。
+
+```text
+普通记忆：新建→<name> <domain>，并可能附带一条只读相关旧记忆。
+pinned=True：📌钉选→<bucket_id> <domain>。
+feel=True + source_bucket：兼容旧写法，也会返回 年轮→<source_bucket>#<comment_id>；新写法优先用 comment_bucket。
+feel=True 但无 source_bucket：兼容旧用法，转为 whisper，不再建议保留独立孤儿 feel。
+whisper=True：🫧whisper→<bucket_id>。
+错误：内容为空 / source_bucket 无效 / 源记忆不存在 / 年轮写入失败。
+```
+
+#### `grow(content) -> str`
+
+输入：
+
+```text
+content: str
+```
+
+返回：纯文本状态。
+
+```text
+短内容（<30 字）：走 hold-like 快速路径，返回 “新建/合并 → <name> | <domain> Vx/Ay”。
+长内容：由 LLM digest 成多条候选，返回 “N条|新X合Y” 加每条标题。
+失败：返回 “长内容摘记失败: ...” 或 “内容为空或整理失败。”。
+```
+
+用途：只给已经筛过、包含多个长期记忆点的片段；整篇日记不要直接 grow。
+
+#### `trace(...) -> str`
+
+输入：
+
+```text
+bucket_id: str
+name: str = ""
+domain: str = ""                # 逗号分隔；替换，不是追加
+valence: float = -1
+arousal: float = -1
+importance: int = -1
+tags: str = ""                  # 逗号分隔；替换，不是追加
+resolved: int = -1              # 0/1
+pinned: int = -1                # 0/1
+anchor: int = -1                # 0/1
+digested: int = -1              # 0/1
+content: str = ""               # 替换完整正文
+delete: bool = False            # 删除整个 bucket，写 tombstone
+```
+
+返回：纯文本状态，例如 `已修改记忆桶 <id>: tags=[...]`、`已遗忘记忆桶: <id>`、`未找到记忆桶: <id>`。
+改正文前先 `read_bucket()`，因为 `content` 是完整替换。
+
+#### `pulse(include_archive=False) -> str`
+
+输入：
+
+```text
+include_archive: bool = False
+```
+
+返回：纯文本系统状态和桶列表，包含 bucket id、主题、情绪、重要度、权重、标签。`include_archive=True` 才列归档桶。
+
+#### `dream() -> str`
+
+输入：无。
+
+返回：纯文本 `=== Dreaming ===`，列出最近普通记忆，供 Haven 自省。
+读后如果真的有沉淀，再用 `trace(resolved=1/digested=1)` 或 `comment_bucket(...)` 写年轮；不要把 dream 输出原样写回。
+
+#### `reflect(period="daily", force=False) -> dict`
+
+输入：
+
+```text
+period: str = "daily"           # "daily"；"weekly" 默认 disabled
+force: bool = False             # True 时重写同周期结果
+```
+
+返回：
+
+```json
+{
+  "status": "created|updated|exists|empty|skipped|disabled",
+  "period": "daily",
+  "id": "reflection_daily_2026-05-23",
+  "date": "2026-05-23",
+  "diary": {"found": true, "diary_id": 37},
+  "diary_memory": {"status": "created|skipped|not_applicable"},
+  "materials": {"buckets": 3, "daily_impressions": 0, "persona_events": 5, "commitments": 1}
+}
+```
+
+`period="weekly"` 且 `reflection.weekly_enabled=false` 时返回 `{"status":"skipped","reason":"weekly_disabled"}`。
+
+## 年轮、whisper 与 Relationship Weather
+
+- 年轮：再次读到旧记忆时留下的感受，挂到源 bucket 的 `metadata.comments`，不再作为单独 bucket 浮现。
+- 旧 feel 迁移：已经能把一部分旧独立 feel 接到关联源记忆下面，并保留 `original_feel_id / original_feel_created`。
+- 旧 feel 清理：确认已迁移后，用 `scripts/cleanup_migrated_feel_buckets.py` 清理旧独立 feel 桶，不删除源 bucket 下的 comments。
+- whisper：无源碎碎念/悄悄话，不适合挂到某条源记忆时，用 `hold(whisper=True)` 独立保存；用 `breath(domain="whisper")` 单独读取。
 - 日印象：`type=feel`，tags 包含 `relationship_weather` / `daily_impression`。
-- 周印象：优先总结本周日印象，再参考高重要普通记忆和未完成承诺。
+- 周印象：自动总结默认关闭；不再默认把多天日印象压缩成周记。需要周视角时，优先考虑只读聚合视图。
 - 日记原文留在 Haven-diary，Ombre 只在有长期价值时提取少量普通记忆。
 - 日印象和重要高温记忆可带 `affect_anchor`。
 - `affect_anchor` 当前写在正文里，Dashboard 还没有专门解析 UI。
@@ -353,7 +598,7 @@ C:\Python313\python.exe -m pytest tests\test_gateway.py tests\test_memory_api.py
 - Memory Edge 同步到 Supabase。
 - Supabase 扩展 `confidence / period / date / comments` 等字段。
 - 真正写入 calendar / todo app 的承诺系统。
-- 日印象专门审阅台和周印象面板。
+- 日印象专门审阅台；如果需要周视角，优先做只读聚合视图。
 - 自动挑选 `haven_favorite`。
 - Favorite Memory 自动轮次注入策略。
 - 本地 Obsidian 双向同步方案重做。
