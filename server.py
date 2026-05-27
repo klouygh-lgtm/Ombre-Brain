@@ -1628,18 +1628,6 @@ def _query_wants_body_chain(query: str) -> bool:
     return any(term in text for term in BODY_CHAIN_QUERY_TERMS)
 
 
-def _query_requests_intimate_body(query: str) -> bool:
-    text = str(query or "").lower()
-    return any(term in text for term in INTIMATE_BODY_TERMS)
-
-
-def _is_neutral_body_chain_noise(query: str, moment: dict) -> bool:
-    if not _query_wants_body_chain(query) or _query_requests_intimate_body(query):
-        return False
-    fields = _moment_search_fields(moment)
-    return any(term in fields for term in INTIMATE_BODY_TERMS)
-
-
 def _body_chain_rank(moment: dict) -> tuple[int, float]:
     fields = _moment_search_fields(moment)
     for index, (_, terms) in enumerate(BODY_CHAIN_PRIORITIES):
@@ -1649,6 +1637,12 @@ def _body_chain_rank(moment: dict) -> tuple[int, float]:
             except (TypeError, ValueError):
                 score = 0.0
             return index, -score
+    if any(term in fields for term in INTIMATE_BODY_TERMS):
+        try:
+            score = float(moment.get("score", 0.0))
+        except (TypeError, ValueError):
+            score = 0.0
+        return len(BODY_CHAIN_PRIORITIES) + 1, -score
     try:
         score = float(moment.get("score", 0.0))
     except (TypeError, ValueError):
@@ -1677,8 +1671,6 @@ def _secondary_direct_moments(
         if not bucket_id or bucket_id in seen_buckets:
             continue
         if moment.get("section") in MOMENT_TEMPERATURE_SECTIONS:
-            continue
-        if _is_neutral_body_chain_noise(query, moment):
             continue
         hidden.append(moment)
         seen_buckets.add(bucket_id)

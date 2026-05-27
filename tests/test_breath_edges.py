@@ -480,7 +480,7 @@ async def test_search_related_includes_hidden_direct_body_chain_candidates(patch
 
 
 @pytest.mark.asyncio
-async def test_neutral_body_chain_suppresses_intimate_body_candidates(patch_breath):
+async def test_neutral_body_chain_demotes_intimate_body_candidates(patch_breath):
     import server
 
     patch_breath(
@@ -495,7 +495,8 @@ async def test_neutral_body_chain_suppresses_intimate_body_candidates(patch_brea
     result = await server.breath(query="身体", max_results=3, max_tokens=500)
 
     assert "具身智能路线" in result
-    assert "湿润发烫" not in result
+    assert "湿润发烫" in result
+    assert result.index("具身智能路线") < result.index("湿润发烫")
 
 
 @pytest.mark.asyncio
