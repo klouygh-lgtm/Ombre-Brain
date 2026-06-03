@@ -598,6 +598,40 @@ async def test_grow_writes_memory_classification_metadata_when_digest_omits_it(
 
 
 @pytest.mark.asyncio
+async def test_breath_debug_includes_runtime_gate(monkeypatch, bucket_mgr, decay_eng):
+    import server
+
+    await bucket_mgr.create(
+        content="小雨不喜欢被说教，需要先接住她的感受。",
+        name="说教边界",
+        tags=["boundary"],
+        importance=8,
+        domain=["关系"],
+        extra_metadata={
+            "memory_subject": "user",
+            "memory_layer": "stable_boundary",
+            "memory_classification_source": "rule",
+        },
+    )
+    monkeypatch.setattr(server, "bucket_mgr", bucket_mgr)
+    monkeypatch.setattr(server, "decay_engine", decay_eng)
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+
+    request = DummyRequest()
+    request.query_params = {"q": "说教"}
+    response = await server.api_breath_debug(request)
+    payload = json.loads(response.body)
+    result = next(item for item in payload["results"] if item["name"] == "说教边界")
+
+    assert result["layer_debug"]["layer"] == "long_term_anchor"
+    assert result["runtime_gate"]["layer"] == "long_term_anchor"
+    assert result["runtime_gate"]["would_inject_related"] is True
+    assert result["runtime_gate"]["related_injection"]["reason"] == "allowed"
+    assert result["runtime_gate"]["would_inject_recent_context"] is False
+    assert result["runtime_gate"]["recent_context"]["reason"] == "automatic_recent_dynamic_only"
+
+
+@pytest.mark.asyncio
 async def test_auto_grow_low_surprise_logs_candidate_without_writing(
     monkeypatch,
     test_config,

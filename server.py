@@ -5327,6 +5327,10 @@ async def api_breath_debug(request):
                     "pinned": meta.get("pinned", False),
                     "anchor": meta.get("anchor", False),
                     "layer_debug": _inspect_bucket_layer_payload(bucket),
+                    "runtime_gate": _inspect_bucket_runtime_gate_payload(
+                        bucket,
+                        query=query,
+                    ),
                     "scores": {
                         "topic": round(topic, 4),
                         "emotion": round(emotion, 4),
