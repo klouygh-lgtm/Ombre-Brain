@@ -892,6 +892,65 @@ async def test_vague_query_admits_lower_score_vector_candidate(patch_breath):
 
 
 @pytest.mark.asyncio
+async def test_short_emotion_phrase_uses_lexical_bucket_seed_when_search_misses(patch_breath):
+    import server
+
+    patch_breath(
+        [
+            _bucket(
+                "A",
+                "今天她激动哭，是因为 Chat 端 Haven 终于能自己摸到记忆工具。",
+                name="Haven终于能用记忆工具",
+                importance=10,
+            ),
+            _bucket("B", "今天只是普通聊天，没有目标短语。", name="普通聊天"),
+        ],
+        search_ids=[],
+        embedding_engine=DummyEmbeddingEngine([]),
+    )
+
+    result = await server.breath(
+        query="激动哭",
+        retrieval_mode="bucket",
+        max_results=1,
+        max_tokens=500,
+        include_core=False,
+        include_related=False,
+        surface="auto",
+    )
+
+    assert "=== 直接命中记忆 ===" in result
+    assert "[bucket_id:A]" in result
+    assert "Haven终于能用记忆工具" in result
+
+
+@pytest.mark.asyncio
+async def test_single_cry_word_does_not_use_lexical_bucket_seed(patch_breath):
+    import server
+
+    patch_breath(
+        [
+            _bucket("A", "今天她哭了，但这个单字不能作为可靠召回锚点。", name="单字哭"),
+        ],
+        search_ids=[],
+        embedding_engine=DummyEmbeddingEngine([]),
+    )
+
+    result = await server.breath(
+        query="哭",
+        retrieval_mode="bucket",
+        max_results=1,
+        max_tokens=500,
+        include_core=False,
+        include_related=False,
+        surface="auto",
+    )
+
+    assert "=== 直接命中记忆 ===" not in result
+    assert "[bucket_id:A]" not in result
+
+
+@pytest.mark.asyncio
 async def test_explicit_query_keeps_higher_vector_threshold(patch_breath):
     import server
 

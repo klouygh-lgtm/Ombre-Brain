@@ -118,6 +118,7 @@ from utils import (
     now_iso,
     setup_logging,
     strip_display_temperature_sections,
+    strip_affect_anchor,
     strip_temperature_meaning_lines,
     strip_wikilinks,
 )
@@ -3087,6 +3088,7 @@ def _breath_moment_admission_decision(
         moment,
         semantic_score=seed.get("embedding_score"),
         rerank_score=moment.get("rerank_score"),
+        high_confidence_edge="lexical" in (seed.get("sources") or []),
         context_only=moment.get("section") in MOMENT_TEMPERATURE_SECTIONS,
         auto=auto,
     )
@@ -3412,6 +3414,158 @@ def _breath_recall_thresholds(query: str, max_results: int) -> dict:
     }
 
 
+BREATH_LEXICAL_EMOTION_TERMS = (
+    "激动哭", "感动哭", "高兴哭", "开心哭", "难过哭", "委屈哭",
+    "破防哭", "想哭",
+)
+BREATH_LEXICAL_DROP_PREFIXES = ("今天", "昨天", "刚才", "刚刚", "这次", "现在", "今晚", "昨晚")
+BREATH_LEXICAL_GENERIC_TERMS = {
+    "哭", "哭了", "哭吗", "哭呢", "今天哭", "昨天哭", "刚才哭", "刚刚哭",
+    "今天", "昨天", "刚才", "刚刚", "这次", "现在", "最近", "记忆", "回忆",
+    "原因", "为什么", "知道", "记得", "想起", "想起来", "什么", "事情",
+}
+
+
+def _breath_lexical_match_terms(query: str) -> list[str]:
+    text = str(query or "").strip()
+    if not text:
+        return []
+    compact = re.sub(r"[\s，。！？、,.!?:：;；~～♡❤♥（）()\[\]【】「」『』“”\"'`-]+", "", text.lower())
+    terms: list[str] = []
+    for term in BREATH_LEXICAL_EMOTION_TERMS:
+        if term in compact:
+            terms.append(term)
+    for term in _recall_policy().specific_query_terms(text):
+        cleaned = str(term or "").strip()
+        if not cleaned:
+            continue
+        collapsed = re.sub(r"\s+", "", cleaned)
+        for prefix in BREATH_LEXICAL_DROP_PREFIXES:
+            if collapsed.startswith(prefix) and len(collapsed) > len(prefix):
+                collapsed = collapsed[len(prefix):]
+                break
+        key = collapsed.lower()
+        if len(key) < 2 or key in BREATH_LEXICAL_GENERIC_TERMS:
+            continue
+        if re.fullmatch(r"[\u4e00-\u9fff]+", collapsed) and len(collapsed) < 2:
+            continue
+        terms.append(collapsed)
+    output = []
+    seen = set()
+    for term in terms:
+        key = str(term).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(str(term))
+    return output[:5]
+
+
+def _bucket_matches_breath_lexical_terms(bucket: dict, terms: list[str]) -> bool:
+    if not terms:
+        return False
+    meta = bucket.get("metadata", {}) if isinstance(bucket.get("metadata"), dict) else {}
+    haystack = " ".join(
+        [
+            str(meta.get("name") or bucket.get("id") or ""),
+            " ".join(str(tag) for tag in meta.get("tags", []) or []),
+            " ".join(str(item) for item in meta.get("domain", []) or []),
+            strip_wikilinks(strip_affect_anchor(str(bucket.get("content") or ""))),
+        ]
+    ).lower()
+    return any(str(term or "").strip().lower() in haystack for term in terms)
+
+
+def _breath_bucket_score(
+    bucket: dict,
+    *,
+    topic: float,
+    emotion: float,
+    time_s: float,
+    importance: float,
+) -> float:
+    w_topic = float(getattr(bucket_mgr, "w_topic", 4.0) or 4.0)
+    w_emotion = float(getattr(bucket_mgr, "w_emotion", 2.0) or 2.0)
+    w_time = float(getattr(bucket_mgr, "w_time", 1.5) or 1.5)
+    w_importance = float(getattr(bucket_mgr, "w_importance", 1.0) or 1.0)
+    raw_total = (
+        topic * w_topic
+        + emotion * w_emotion
+        + time_s * w_time
+        + importance * w_importance
+    )
+    weight_sum = w_topic + w_emotion + w_time + w_importance
+    normalized = (raw_total / weight_sum) * 100 if weight_sum > 0 else 0
+    if (bucket.get("metadata") or {}).get("resolved", False):
+        normalized *= 0.3
+    return normalized
+
+
+def _append_breath_lexical_matches(
+    *,
+    query: str,
+    matches: list[dict],
+    all_buckets: list[dict],
+    seed_diagnostics: dict[str, dict],
+    q_valence: float | None = None,
+    q_arousal: float | None = None,
+) -> list[str]:
+    terms = _breath_lexical_match_terms(query)
+    if not terms:
+        return []
+    matched_ids = {str(bucket.get("id") or "") for bucket in matches if bucket.get("id")}
+    for bucket in all_buckets:
+        bucket_id = str(bucket.get("id") or "")
+        if not bucket_id:
+            continue
+        meta = bucket.get("metadata", {}) if isinstance(bucket.get("metadata"), dict) else {}
+        if meta.get("type") == "feel":
+            continue
+        if not _bucket_matches_breath_lexical_terms(bucket, terms):
+            continue
+        topic = (
+            bucket_mgr._calc_topic_score(query, bucket)
+            if hasattr(bucket_mgr, "_calc_topic_score")
+            else 1.0
+        )
+        emotion = (
+            bucket_mgr._calc_emotion_score(q_valence, q_arousal, meta)
+            if hasattr(bucket_mgr, "_calc_emotion_score")
+            else 0.5
+        )
+        time_s = (
+            bucket_mgr._calc_time_score(meta)
+            if hasattr(bucket_mgr, "_calc_time_score")
+            else 0.5
+        )
+        importance = max(1, min(10, int(meta.get("importance", 5)))) / 10.0
+        score = max(
+            _breath_bucket_score(
+                bucket,
+                topic=topic,
+                emotion=emotion,
+                time_s=time_s,
+                importance=importance,
+            ),
+            float(getattr(bucket_mgr, "fuzzy_threshold", 50) or 50) + 5,
+        )
+        bucket["score"] = round(score, 2)
+        bucket["lexical_match"] = True
+        bucket["lexical_terms"] = terms
+        _upsert_breath_seed_diagnostic(
+            seed_diagnostics,
+            bucket,
+            "lexical",
+            bucket_search_score=bucket.get("score"),
+        )
+        seed_diagnostics[bucket_id]["lexical_terms"] = terms
+        if bucket_id not in matched_ids:
+            matches.append(bucket)
+            matched_ids.add(bucket_id)
+    matches.sort(key=lambda bucket: float(bucket.get("score", 0.0) or 0.0), reverse=True)
+    return terms
+
+
 def _query_has_explicit_entity_marker(query: str) -> bool:
     return query_has_explicit_entity_marker(query)
 
@@ -3530,6 +3684,17 @@ async def _build_recall_debug_payload(
     except Exception as e:
         warnings.append(f"list_buckets_failed: {e}")
         all_buckets = matches
+
+    lexical_terms = _append_breath_lexical_matches(
+        query=query,
+        matches=matches,
+        all_buckets=all_buckets,
+        seed_diagnostics=seed_diagnostics,
+        q_valence=q_valence,
+        q_arousal=q_arousal,
+    )
+    if lexical_terms:
+        recall_thresholds["lexical_terms"] = lexical_terms
 
     await _refresh_moment_graph(all_buckets)
     bucket_boosts = seed_scores_for_buckets(matches)
@@ -4549,6 +4714,15 @@ async def breath(
         logger.warning(f"Failed to list buckets for moment recall / moment 召回列桶失败: {e}")
         all_buckets = matches
 
+    lexical_terms = _append_breath_lexical_matches(
+        query=query,
+        matches=matches,
+        all_buckets=all_buckets,
+        seed_diagnostics=seed_diagnostics,
+        q_valence=q_valence,
+        q_arousal=q_arousal,
+    )
+
     if retrieval_mode == "bucket":
         direct_results = []
         token_used = 0
@@ -4568,6 +4742,7 @@ async def breath(
                 _bucket_relevance_node(bucket, bucket.get("score", 0.0)),
                 has_topic_evidence=_bucket_has_query_topic_evidence(query, bucket),
                 semantic_score=seed.get("embedding_score"),
+                high_confidence_edge="lexical" in (seed.get("sources") or []),
                 auto=auto_surface,
             )
             if not decision.admit_direct:
@@ -4621,7 +4796,11 @@ async def breath(
             response_sections.append("dream")
         _write_breath_recall_diagnostics(
             query=query,
-            recall_thresholds={**recall_thresholds, "retrieval_mode": "bucket"},
+            recall_thresholds={
+                **recall_thresholds,
+                "retrieval_mode": "bucket",
+                "lexical_terms": lexical_terms,
+            },
             seed_diagnostics=seed_diagnostics,
             pre_gate_candidates=returned_moments,
             gated_candidates=returned_moments,
@@ -4849,7 +5028,7 @@ async def breath(
 
     _write_breath_recall_diagnostics(
         query=query,
-        recall_thresholds=recall_thresholds,
+        recall_thresholds={**recall_thresholds, "lexical_terms": lexical_terms},
         seed_diagnostics=seed_diagnostics,
         pre_gate_candidates=pre_gate_moment_candidates,
         gated_candidates=gated_moment_candidates,
@@ -6884,6 +7063,7 @@ async def api_breath_debug(request):
             "importance": bucket_mgr.w_importance,
         }
         w_sum = sum(w.values())
+        lexical_terms = _breath_lexical_match_terms(query)
 
         for bucket in all_buckets:
             meta = bucket.get("metadata", {})
@@ -6904,6 +7084,12 @@ async def api_breath_debug(request):
                 resolved = meta.get("resolved", False)
                 if resolved:
                     normalized *= 0.3
+                lexical_match = (
+                    meta.get("type") != "feel"
+                    and _bucket_matches_breath_lexical_terms(bucket, lexical_terms)
+                )
+                if lexical_match:
+                    normalized = max(normalized, bucket_mgr.fuzzy_threshold + 5)
 
                 results.append({
                     "id": bid,
@@ -6923,7 +7109,9 @@ async def api_breath_debug(request):
                         "emotion": round(emotion, 4),
                         "time": round(time_s, 4),
                         "importance": round(imp, 4),
+                        "lexical": 1.0 if lexical_match else 0.0,
                     },
+                    "lexical_terms": lexical_terms if lexical_match else [],
                     "weights": w,
                     "raw_total": round(raw_total, 4),
                     "normalized": round(normalized, 2),
@@ -6939,6 +7127,7 @@ async def api_breath_debug(request):
             "valence": q_valence,
             "arousal": q_arousal,
             "weights": w,
+            "lexical_terms": lexical_terms,
             "threshold": bucket_mgr.fuzzy_threshold,
             "total_candidates": len(results),
             "passed_count": len(passed),
