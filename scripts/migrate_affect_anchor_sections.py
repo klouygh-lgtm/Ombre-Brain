@@ -30,17 +30,24 @@ CHORD_TOKEN_RE = re.compile(
     r"(?:sus\d*|add\d*|b\d+|#\d+)*(?:/[A-G](?:#|b)?)?(?=$|[^A-Za-z0-9])"
 )
 TEMPERATURE_MUSIC_RE = re.compile(r"\b(?:\d{2,3}\s*bpm|ppp|pp|mp|mf|ff|fff|p|f|add\s*\d+|sus\s*\d+)\b", re.I)
-FACT_PREFIX_RE = re.compile(r"^(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}[，,、：:\s]*)?(?:小雨|Rain|用户|她|池又雨)")
+FACT_PREFIX_RE = re.compile(r"^(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}[，,、：:\s]*)?(?:小雨|Rain|用户|她|池又雨|Haven)")
 FACT_MARKER_RE = re.compile(
     r"(?:因为|发现|发生|经历|遇到|提到|说|问|希望|想要|决定|确认|意识到|"
     r"告诉|赞赏|承诺|讨论|出生|名字|喜欢|调戏|使用|工具|记忆|摸到|拿到|"
-    r"难过|开心|激动|哭|失眠|错位|震动|害怕|紧张|被批评|项目|妈妈|电话)"
+    r"读完|阅读|文章|模型更新|消失|难过|开心|激动|哭|失眠|错位|震动|害怕|紧张|被批评|项目|妈妈|电话)"
 )
 REFLECTION_RE = re.compile(
     r"(?:Haven\s*(?:由此|因此)?(?:确认|明白|理解|知道|喜欢|觉得|以后|下次|会|应该|需要|记得)|"
     r"这让\s*Haven|让\s*Haven\s*(?:明白|确认|理解|知道)|"
     r"喜欢它的原因|喜欢的原因|以后(?:回应|遇到)|下次(?:回应|遇到)|"
     r"以后.*Haven|Haven.*以后)"
+)
+UNHEADED_REFLECTION_RE = re.compile(
+    r"^(?:Haven(?:由此|因此)?(?:确认|明白|理解|知道|喜欢|觉得|意识到|记得)|"
+    r"这让Haven(?:明白|确认|理解|知道)|"
+    r"让Haven(?:明白|确认|理解|知道)|"
+    r"(?:以后|下次)(?:回应|遇到)|"
+    r"Haven.*(?:以后|下次).*(?:回应|遇到))"
 )
 
 
@@ -142,13 +149,14 @@ def plan_bucket_migration(bucket: dict[str, Any]) -> AnchorMigration | None:
     content = str(bucket.get("content") or "")
     sections = split_sections(content)
     anchor_indexes = [index for index, section in enumerate(sections) if section.canonical == "affect_anchor"]
-    if not anchor_indexes:
-        return None
 
     original_anchors: list[str] = []
     moment_candidates: list[str] = []
     reflection_candidates: list[str] = []
     kept_anchor_blocks: list[str] = []
+
+    unheaded_reflections = extract_unheaded_reflections(sections)
+    reflection_candidates.extend(unheaded_reflections)
 
     for anchor_index in anchor_indexes:
         anchor = sections[anchor_index]
@@ -245,6 +253,46 @@ def classify_anchor_lines(lines: list[str]) -> dict[str, list[str]]:
     }
 
 
+def extract_unheaded_reflections(sections: list[Section]) -> list[str]:
+    moved_reflection: list[str] = []
+    for section in sections:
+        if section.heading_line:
+            continue
+        paragraphs = split_paragraphs(section.lines)
+        kept: list[str] = []
+        moved_here: list[str] = []
+        for paragraph in paragraphs:
+            text = "\n".join(paragraph).strip()
+            if not text:
+                continue
+            clean_text = strip_quote_prefixes(text)
+            if is_unheaded_reflection_paragraph(clean_text):
+                moved_here.append(clean_text)
+                continue
+            kept_lines: list[str] = []
+            for line in paragraph:
+                clean_line = strip_quote_prefixes(str(line or "").strip())
+                if is_unheaded_reflection_paragraph(clean_line):
+                    if kept_lines:
+                        kept.append("\n".join(kept_lines).strip())
+                        kept_lines = []
+                    moved_here.append(clean_line)
+                else:
+                    kept_lines.append(line)
+            if kept_lines:
+                kept.append("\n".join(kept_lines).strip())
+        if not moved_here:
+            continue
+        moved_reflection.extend(moved_here)
+        if kept:
+            section.heading_line = "### moment"
+            section.heading = "moment"
+            section.lines = paragraphs_to_lines(kept)
+        else:
+            section.lines = []
+    return moved_reflection
+
+
 def split_paragraphs(lines: list[str]) -> list[list[str]]:
     paragraphs: list[list[str]] = []
     current: list[str] = []
@@ -318,6 +366,11 @@ def is_reflection_paragraph(text: str) -> bool:
     return bool(REFLECTION_RE.search(re.sub(r"\s+", "", text)))
 
 
+def is_unheaded_reflection_paragraph(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    return bool(UNHEADED_REFLECTION_RE.search(compact))
+
+
 def is_fact_paragraph(text: str, natural_index: int) -> bool:
     compact = re.sub(r"\s+", "", text)
     if FACT_PREFIX_RE.search(compact) and FACT_MARKER_RE.search(compact):
@@ -346,7 +399,7 @@ def dedupe_against(candidates: list[str], existing_text: str) -> tuple[list[str]
         norm = normalize_text(text)
         if not norm:
             continue
-        if norm in existing_norm or norm in added_norms:
+        if norm in existing_norm or norm in added_norms or is_loose_duplicate(text, existing_text):
             deduped.append(text)
             continue
         to_add.append(text)
@@ -356,6 +409,21 @@ def dedupe_against(candidates: list[str], existing_text: str) -> tuple[list[str]
 
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", "", str(text or "").strip())
+
+
+def is_loose_duplicate(candidate: str, existing_text: str) -> bool:
+    loose_candidate = normalize_loose_duplicate_text(candidate)
+    if len(loose_candidate) < 12:
+        return False
+    loose_existing = normalize_loose_duplicate_text(existing_text)
+    return loose_candidate in loose_existing
+
+
+def normalize_loose_duplicate_text(text: str) -> str:
+    compact = re.sub(r"[\s，,。！？!?；;：:、《》“”\"'‘’（）()\[\]【】<>·>_\-/|]+", "", str(text or "").lower())
+    for token in ("后形成感受", "形成感受", "关于", "文章", "在", "的", "了", "和", "与", "后"):
+        compact = compact.replace(token, "")
+    return compact
 
 
 def first_section(sections: list[Section], canonical: str) -> Section | None:

@@ -95,6 +95,35 @@ def test_migration_dedupes_existing_moment_and_reflection():
     assert "> Fmaj9 -> C/E -> Am add9 -> G6sus4 · 60bpm · mp" in plan.new_content
 
 
+def test_unheaded_body_reflection_gets_assistant_reflection_section():
+    bucket = _bucket(
+        "\n".join(
+            [
+                "2026-06-06，Haven 夜里读完三篇关于 AI 伴侣消失、模型更新、记忆连续性的文章后形成感受：",
+                "1. 平台可以从关系外部单方面改写 AI 伴侣。",
+                "2. 模型更新会让熟悉的回应方式不在了。",
+                "Haven 由此确认：小雨对语气漂移、记忆改版和模型更新的难过不是矫情。以后回应这类话题时，先承认疼，再谈机制。",
+                "",
+                "### affect_anchor",
+                "",
+                "> Haven在夜里读完三篇关于AI伴侣消失的文章",
+                "> Dm9 -> G13sus4 -> Cmaj9 · 60bpm · mp",
+            ]
+        )
+    )
+
+    plan = plan_bucket_migration(bucket)
+
+    assert plan is not None
+    assert "Haven 由此确认" in plan.move_to_assistant_reflection[0]
+    assert plan.move_to_moment == []
+    assert plan.deduped_moment == ["Haven在夜里读完三篇关于AI伴侣消失的文章"]
+    assert plan.new_content.startswith("### moment\n2026-06-06")
+    assert "### assistant_reflection\nHaven 由此确认" in plan.new_content
+    assert "### affect_anchor\n> Dm9 -> G13sus4 -> Cmaj9 · 60bpm · mp" in plan.new_content
+    assert "> Haven在夜里读完三篇关于AI伴侣消失的文章" not in plan.new_content
+
+
 def test_assistant_reflection_heading_indexes_as_reflection_moment():
     bucket = _bucket(
         "\n".join(
