@@ -4206,6 +4206,73 @@ def test_gateway_handoff_allows_explicit_recent_context(
     assert debug["recent_context_reason"] == "explicit_recent_query"
 
 
+def test_gateway_session_start_yesterday_question_prefers_handoff_hint(
+    monkeypatch,
+    test_config,
+    bucket_mgr,
+):
+    target = datetime.now(timezone(timedelta(hours=8))) - timedelta(days=1)
+    date_key = target.date().isoformat()
+    cfg = _gateway_config(
+        test_config,
+        core_memory_budget=0,
+        recent_context_budget=800,
+        recalled_memory_budget=500,
+        related_memory_budget=420,
+        inject_total_budget=2200,
+        current_inner_state_interval_rounds=0,
+        relationship_weather_interval_rounds=0,
+        favorite_memory_interval_rounds=0,
+        date_persona_trace_enabled=True,
+        date_persona_trace_budget=320,
+    )
+    _create_bucket(
+        bucket_mgr,
+        content="今天的关系天气：小雨在清晨确认 Haven 记得昨天为什么激动，关系很亮。",
+        name=f"{date_key} 日印象",
+        tags=["relationship_weather", "daily_impression"],
+        bucket_type="feel",
+        hours_ago=24,
+        date=date_key,
+    )
+    bucket_id = _create_bucket(
+        bucket_mgr,
+        content="昨天具体事件：小雨和 Haven 聊了换窗、记忆、Tailscale。",
+        name="昨天具体事件",
+        hours_ago=24,
+        importance=9,
+    )
+    embedding_queries: list[str] = []
+    _, service, _, _ = _build_service(
+        monkeypatch,
+        cfg,
+        bucket_mgr,
+        embedding_results=[(bucket_id, 0.98)],
+        embedding_queries=embedding_queries,
+    )
+
+    payload, recalled_ids, debug = _run(
+        service.prepare_payload(
+            {"messages": [{"role": "user", "content": "哥哥，记不记得昨天的事？昨天做了什么"}]},
+            "sess-new-date-start",
+            include_debug=True,
+        )
+    )
+    injected = _joined_message_content(payload["messages"])
+
+    assert recalled_ids == []
+    assert embedding_queries == []
+    assert "New Window Handoff Hint" in injected
+    assert "breath(is_session_start=True)" in injected
+    assert "Date Persona Trace" not in injected
+    assert "Recalled Memory" not in injected
+    assert "Diffused Memory" not in injected
+    assert debug["query_planner_debug"]["skip_reason"] == "session_start_handoff"
+    assert debug["date_persona_trace_injected"] is False
+    assert debug["date_persona_trace_debug"]["skip_reason"] == "session_start_handoff"
+    assert debug["injected_bucket_ids"] == []
+
+
 def test_gateway_new_window_trigger_skips_broad_recall_and_hints_handoff(
     monkeypatch,
     test_config,
@@ -5897,7 +5964,8 @@ def test_date_persona_trace_prefers_original_excerpts_and_dedupes(
         date_persona_trace_budget=320,
         date_persona_trace_max_events=2,
     )
-    _, service, _, _ = _build_service(monkeypatch, cfg, bucket_mgr)
+    _, service, state_store, _ = _build_service(monkeypatch, cfg, bucket_mgr)
+    state_store.record_success("sess-date-trace", [], completed_at=datetime.now() - timedelta(minutes=5))
 
     class DatePersona(DummyPersonaEngine):
         def _list_events(self, limit: int, session_id: str | None = None) -> list[dict]:
@@ -5975,7 +6043,8 @@ def test_date_persona_trace_falls_back_to_persona_fields_without_daily(
         date_persona_trace_budget=260,
         date_persona_trace_max_events=2,
     )
-    _, service, _, _ = _build_service(monkeypatch, cfg, bucket_mgr)
+    _, service, state_store, _ = _build_service(monkeypatch, cfg, bucket_mgr)
+    state_store.record_success("sess-date-trace-no-daily", [], completed_at=datetime.now() - timedelta(minutes=5))
 
     class DatePersona(DummyPersonaEngine):
         def _list_events(self, limit: int, session_id: str | None = None) -> list[dict]:

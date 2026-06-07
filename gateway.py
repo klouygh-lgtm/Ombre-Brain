@@ -1034,6 +1034,13 @@ class GatewayService:
         is_new_user_turn = bool(current_user_query)
         has_handoff_context = self._messages_contain_handoff_context(messages)
         is_handoff_trigger_query = self._query_is_handoff_trigger(current_user_query)
+        is_session_start = self.state_store.get_last_success_at(session_id) is None
+        is_session_start_handoff_query = (
+            is_session_start
+            and not has_handoff_context
+            and self._query_prefers_session_start_handoff(current_user_query)
+        )
+        needs_handoff_first = is_handoff_trigger_query or is_session_start_handoff_query
 
         persona_block = ""
         core_memory = ""
@@ -1072,14 +1079,24 @@ class GatewayService:
                 current_user_query,
                 session_id,
             )
-            skip_broad_dynamic_recall = skip_for_targeted_detail or is_handoff_trigger_query
-            if is_handoff_trigger_query:
-                query_planner_debug["skip_reason"] = "handoff_trigger"
-                handoff_tool_hint = (
-                    "New-window signal: call the memory tool as breath(is_session_start=True) "
-                    "or breath(mode=\"handoff\") before replying. Do not call breath(query=\"新窗口\") "
-                    "for this literal signal, and do not write/hold it unless the user explicitly asks."
+            skip_broad_dynamic_recall = skip_for_targeted_detail or needs_handoff_first
+            if needs_handoff_first:
+                query_planner_debug["skip_reason"] = (
+                    "handoff_trigger" if is_handoff_trigger_query else "session_start_handoff"
                 )
+                if is_session_start_handoff_query and not is_handoff_trigger_query:
+                    handoff_tool_hint = (
+                        "First turn of a new session with a date-continuity question: call the memory tool "
+                        "as breath(is_session_start=True) or breath(mode=\"handoff\") before answering. "
+                        "Use this to restore identity and life context first; if concrete details are still "
+                        "needed afterwards, then call breath(query=...) for the date/event."
+                    )
+                else:
+                    handoff_tool_hint = (
+                        "New-window signal: call the memory tool as breath(is_session_start=True) "
+                        "or breath(mode=\"handoff\") before replying. Do not call breath(query=\"新窗口\") "
+                        "for this literal signal, and do not write/hold it unless the user explicitly asks."
+                    )
             if self.persona_engine.enabled and self._should_inject_interval(
                 session_id,
                 self.current_inner_state_interval_rounds,
@@ -1091,13 +1108,15 @@ class GatewayService:
             if self.persona_engine.enabled and persona_state is None:
                 persona_state = self._get_persona_state_for_context_mode(session_id)
             context_mode = self._classify_context_mode(current_user_query, persona_state)
-            if not is_handoff_trigger_query and self._should_inject_interval(
+            if not needs_handoff_first and self._should_inject_interval(
                 session_id,
                 self.core_memory_interval_rounds,
             ):
                 core_memory = await self._build_core_memory_block(all_buckets)
-            if is_handoff_trigger_query:
-                portrait_memory_debug["skip_reason"] = "handoff_trigger"
+            if needs_handoff_first:
+                portrait_memory_debug["skip_reason"] = (
+                    "handoff_trigger" if is_handoff_trigger_query else "session_start_handoff"
+                )
             else:
                 portrait_memory, portrait_memory_debug = self._build_portrait_memory_block(all_buckets)
             if self.recalled_budget > 0 or self.related_memory_budget > 0:
@@ -1105,7 +1124,7 @@ class GatewayService:
                     logger.info(
                         "Gateway broad dynamic recall skipped | session=%s reason=%s",
                         session_id,
-                        "handoff_trigger" if is_handoff_trigger_query else "targeted_memory_detail_query",
+                        query_planner_debug.get("skip_reason") or "targeted_memory_detail_query",
                     )
                     suppressed_moments = []
                     suppressed_buckets = []
@@ -1154,10 +1173,15 @@ class GatewayService:
                 self.recalled_budget,
                 current_user_query,
             )
-            date_persona_trace, date_persona_trace_debug = self._build_date_persona_trace_block(
-                current_user_query,
-                all_buckets,
-            )
+            if needs_handoff_first:
+                date_persona_trace_debug["skip_reason"] = (
+                    "handoff_trigger" if is_handoff_trigger_query else "session_start_handoff"
+                )
+            else:
+                date_persona_trace, date_persona_trace_debug = self._build_date_persona_trace_block(
+                    current_user_query,
+                    all_buckets,
+                )
             if self._should_inject_interval(session_id, self.relationship_weather_interval_rounds):
                 relationship_weather = await self._build_relationship_weather_block(all_buckets)
             if (
@@ -1230,7 +1254,7 @@ class GatewayService:
                 session_id,
                 current_user_query,
                 has_reliable_dynamic_context=reliable_dynamic_context,
-                has_handoff_context=has_handoff_context or is_handoff_trigger_query,
+                has_handoff_context=has_handoff_context or needs_handoff_first,
             ):
                 explicit_recent_query = self._query_requests_recent_context(current_user_query)
                 recent_context = await self._build_recent_context_block(
@@ -3177,6 +3201,31 @@ class GatewayService:
             "newwindow",
             "sessionstart",
         }
+
+    def _query_prefers_session_start_handoff(self, query_text: str) -> bool:
+        text = str(query_text or "").strip()
+        if not text:
+            return False
+        if not self._query_date_hint(text):
+            return False
+        continuity_markers = (
+            "记不记得",
+            "还记得",
+            "记得",
+            "做了什么",
+            "干了什么",
+            "聊了什么",
+            "发生了什么",
+            "发生什么",
+            "怎么说",
+            "怎么回事",
+            "怎么了",
+            "什么事",
+            "昨天的事",
+            "昨晚的事",
+            "前天的事",
+        )
+        return any(marker in text for marker in continuity_markers)
 
     def _coerce_message_text(self, content: Any) -> str:
         if isinstance(content, str):
