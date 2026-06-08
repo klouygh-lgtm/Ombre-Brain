@@ -474,6 +474,13 @@ How to tell the paths apart in debug:
 - `detail_tokens` is the approximate token count of the added detail block.
 - Recent real upstream `usage` is only a debugging aid and is kept in a small rolling table, queryable at `/api/debug/upstream-usage?session_id=...`.
 
+Broad recall boundary:
+
+- Do not remove generic words such as "that time" or "detail" from every recall query.
+- For deictic detail follow-ups such as "expand this", "what did you confirm from that", or "why did you like this", prefer the ids shown in the previous injected memory.
+- When the follow-up points to previous injected ids and has no new concrete anchor, skip broad dynamic recall and add only Targeted Memory Detail.
+- When the query contains a new concrete anchor, such as "the mom phone-call detail", allow normal recall because the user may be naming a new target.
+
 Why this is preferable to a visible `[recall]` suffix on every user message:
 
 - It does not pollute user messages or chat history.

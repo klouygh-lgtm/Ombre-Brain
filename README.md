@@ -251,6 +251,7 @@ cp config.example.yaml /srv/ombre-brain/config.yaml
 - `gateway.portrait_memory_*`：控制 Gateway 是否注入只读画像事实缓存，默认开启，只读取 `profile_fact` 和选中的 anchor，不读 pinned/protected。
 - `gateway.query_planner_*`：长句或低置信问题可额外拆成 1-3 个短查询；只是补候选，不直接注入。
 - `gateway.memory_detail_recall_*`：可选内部二次取细节，默认关闭；只允许已召回过的 bucket id。
+- Targeted Memory Detail：当用户只是追问“这条/那次/由此确认/为什么喜欢/细节看看”，且上一轮已有注入 id，会跳过普通 broad dynamic recall，直接用已出现的 bucket_id / moment_id 补细节；如果问题里有新的具体锚点，仍允许正常召回。
 - `GET /api/debug/upstream-usage?session_id=...`：排查用近期上游 token usage，只保留最近少量记录；真实二次取回看 `/api/debug/injections` 里的 `memory_detail_recall_debug.triggered/retried/detail_tokens`，普通 `recalled/diffused/injected` 不等于二次取回。
 - `recall.query_resurface_enabled`：是否允许有 query 的 `breath()` 随机追加久未碰过的旧记忆，默认 `false`。
 - `memory_diffusion.*`：控制图扩散、链式扩散、hop 衰减和关系权重；默认启用普通短扩散，可靠链式扩散默认关闭。
