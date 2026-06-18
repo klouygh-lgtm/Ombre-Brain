@@ -53,8 +53,11 @@ def test_darkroom_status_is_door_only(tmp_path):
     status = store.status()
 
     assert status["status"] == "ok"
-    assert status["count"] == 2
+    assert status["count"] == 1
+    assert first["room_id"] == second["room_id"]
+    assert second["revision"] == 2
     assert status["last_entry_id"] == second["entry_id"]
+    assert status["last_room_id"] == second["room_id"]
     assert status["previous_completeness"] == 0.2
     assert status["last_completeness"] == 0.6
     assert first["entry_id"] != second["entry_id"]
@@ -72,6 +75,40 @@ def test_darkroom_continue_anchor_stays_private(tmp_path):
     assert result["continuation_anchor_entries"] == 1
     assert old_secret not in str(result)
     assert old_secret not in str(store.status())
+
+
+def test_darkroom_continue_context_returns_recent_active_notes(tmp_path):
+    store = _store(tmp_path)
+    first_secret = "第一条 active 暗房正文"
+    second_secret = "第二条 active 暗房正文"
+    archived_secret = "归档正文不该进续写上下文"
+    store.enter(first_secret, completeness=0.2)
+    store.enter(archived_secret, completeness=0.9, visibility="archived", new_room=True)
+    store.enter(second_secret, completeness=0.5)
+
+    context = store.continue_context(limit=3)
+
+    assert context["status"] == "ok"
+    assert context["count"] == 1
+    assert context["entries"][0]["content"] == second_secret
+    assert context["entries"][0]["revision"] == 2
+    assert archived_secret not in str(context)
+
+
+def test_darkroom_new_room_creates_separate_active_draft(tmp_path):
+    store = _store(tmp_path)
+    first = store.enter("第一间房", completeness=0.4)
+    second = store.enter("第二间房", completeness=0.2, new_room=True)
+
+    status = store.status()
+    context = store.continue_context()
+
+    assert first["room_id"] != second["room_id"]
+    assert second["revision"] == 1
+    assert status["count"] == 2
+    assert status["last_room_id"] == second["room_id"]
+    assert context["entries"][0]["room_id"] == second["room_id"]
+    assert context["entries"][0]["content"] == "第二间房"
 
 
 def test_darkroom_single_mode_has_no_continuation_anchor(tmp_path):
@@ -110,10 +147,27 @@ def test_darkroom_view_returns_content_without_release_count(tmp_path):
     assert store.status()["released_count"] == 0
 
 
+def test_darkroom_view_blocks_incomplete_entry(tmp_path):
+    store = _store(tmp_path)
+    secret = "完整度不到 1 不能查看"
+    store.enter(secret, completeness=0.9, tags="draft")
+
+    viewed = store.view("latest")
+    released = store.release("latest", reason="too early")
+
+    assert viewed["status"] == "not_ready"
+    assert viewed["completeness"] == 0.9
+    assert "content" not in viewed
+    assert secret not in str(viewed)
+    assert released["status"] == "not_ready"
+    assert secret not in str(released)
+    assert store.status()["released_count"] == 0
+
+
 def test_darkroom_view_respects_lock_for(tmp_path):
     store = _store(tmp_path)
     secret = "锁门期间不能出现在 view 里"
-    store.enter(secret, completeness=0.5, lock_for="1d")
+    store.enter(secret, completeness=1.0, lock_for="1d")
 
     viewed = store.view("latest")
     released = store.release("latest", reason="too early")
@@ -156,8 +210,8 @@ def test_darkroom_view_allows_expired_lock(tmp_path):
 def test_darkroom_status_defaults_to_active_entries(tmp_path):
     store = _store(tmp_path)
     active = store.enter("active door note", completeness=0.3)
-    archived = store.enter("archived door note", completeness=0.9, visibility="archived")
-    retracted = store.enter("retracted door note", completeness=1.0, visibility="retracted")
+    archived = store.enter("archived door note", completeness=0.9, visibility="archived", new_room=True)
+    retracted = store.enter("retracted door note", completeness=1.0, visibility="retracted", new_room=True)
 
     status = store.status()
 
@@ -174,15 +228,39 @@ def test_darkroom_status_defaults_to_active_entries(tmp_path):
 def test_darkroom_release_latest_skips_archived_and_retracted(tmp_path):
     store = _store(tmp_path)
     active_secret = "active release note"
-    store.enter(active_secret, completeness=0.7, tags="ready")
-    store.enter("archived release note", completeness=1.0, visibility="archived")
-    store.enter("retracted release note", completeness=1.0, visibility="retracted")
+    store.enter(active_secret, completeness=1.0, tags="ready")
+    store.enter("archived release note", completeness=1.0, visibility="archived", new_room=True)
+    store.enter("retracted release note", completeness=1.0, visibility="retracted", new_room=True)
 
     released = store.release("latest", reason="release latest active")
 
     assert released["status"] == "released"
     assert released["content"] == active_secret
     assert store.status()["released_count"] == 1
+
+
+def test_darkroom_view_blocks_legacy_entry_without_completeness(tmp_path):
+    store = _store(tmp_path)
+    legacy = {
+        "id": "dr_legacy_no_completeness",
+        "created_at": "2026-06-10T12:00:00+08:00",
+        "note": "legacy note without completeness",
+        "mode": "continue",
+        "previous_entry_id": "",
+        "previous_completeness": None,
+        "continuation_anchor": {},
+        "mood": "old",
+        "tags": ["legacy"],
+        "source": "test",
+        "visibility": "active",
+    }
+    store._append_jsonl_unlocked(store.entries_path, legacy)
+
+    viewed = store.view("latest")
+
+    assert viewed["status"] == "not_ready"
+    assert "content" not in viewed
+    assert "legacy note without completeness" not in str(viewed)
 
 
 def test_darkroom_legacy_entries_without_visibility_are_active(tmp_path):
@@ -192,7 +270,7 @@ def test_darkroom_legacy_entries_without_visibility_are_active(tmp_path):
         "created_at": "2026-06-10T12:00:00+08:00",
         "note": "legacy active note",
         "mode": "continue",
-        "completeness": 0.8,
+        "completeness": 1.0,
         "previous_entry_id": "",
         "previous_completeness": None,
         "continuation_anchor": {},
