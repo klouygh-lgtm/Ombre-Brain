@@ -1768,12 +1768,15 @@ def test_gateway_streams_native_anthropic_messages(monkeypatch, test_config, buc
     assert captured[0]["url"] == "https://claude.example/v1/messages"
     assert captured[0]["json"]["cache_control"] == {"type": "ephemeral"}
     assert "event: message_stop" in body
-    turns = state_store.list_recent_conversation_turns(
-        profile_id="haven_xiaoyu",
-        session_id="sess-native-anthropic-stream",
-        limit=1,
-        hours=1,
-    )
+    turns = [
+        turn
+        for turn in state_store.list_recent_conversation_turns(
+            profile_id="haven_xiaoyu",
+            limit=5,
+            hours=1,
+        )
+        if turn.get("session_id") == "sess-native-anthropic-stream"
+    ]
     assert turns[0]["assistant_text"] == "hello"
 
 
