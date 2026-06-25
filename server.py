@@ -147,6 +147,12 @@ logger = logging.getLogger("ombre_brain")
 
 MEMORY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
+
+def _coerce_memory_id(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
 # --- Initialize core components / 初始化核心组件 ---
 bucket_mgr = BucketManager(config)                  # Bucket manager / 记忆桶管理器
 dehydrator = Dehydrator(config)                      # Dehydrator / 脱水器
@@ -7117,7 +7123,7 @@ async def resurface(max_results: int = 1, include_archive: bool = True, max_toke
 @mcp.tool()
 async def read_bucket(bucket_id: str) -> dict:
     """按 bucket_id 精确读取完整记忆桶；trace/comment 前先读。只读，不刷新活跃度。"""
-    bucket_id = (bucket_id or "").strip()
+    bucket_id = _coerce_memory_id(bucket_id)
     if not bucket_id or not MEMORY_ID_RE.fullmatch(bucket_id):
         return {"error": "invalid bucket_id"}
     bucket = await bucket_mgr.get(bucket_id)
@@ -7139,7 +7145,7 @@ async def comment_bucket(
     arousal: float = -1,
 ) -> dict:
     """给已有 bucket 追加年轮/补充感受；会 touch，不改正文。kind=feel 时 content 只写第一人称感受，不写 ### moment/### affect_anchor 或和弦。"""
-    bucket_id = (bucket_id or "").strip()
+    bucket_id = _coerce_memory_id(bucket_id)
     if not bucket_id or not MEMORY_ID_RE.fullmatch(bucket_id):
         return {"error": "invalid bucket_id"}
     if not content or not content.strip():
@@ -7869,7 +7875,8 @@ async def trace(
 ) -> str:
     """修改已有记忆，不创建新桶。tags/domain/content 是替换；date 可改事件日期；改前先 read_bucket。resolved/digested 让旧事沉底。只改元数据/date 不重建 embedding，改 content/name 才重建。"""
 
-    if not bucket_id or not bucket_id.strip():
+    bucket_id = _coerce_memory_id(bucket_id)
+    if not bucket_id:
         return "请提供有效的 bucket_id。"
 
     # --- Delete mode / 删除模式 ---
