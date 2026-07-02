@@ -2453,6 +2453,7 @@
   <div class="tab" data-tab="network">记忆网络</div>
   <div class="tab" data-tab="config">配置</div>
   <div class="tab" data-tab="upstream-config">上游模型</div>
+  <div class="tab" data-tab="model-config">模型配置</div>
   <div class="tab" data-tab="memory-config">记忆浮现</div>
   <div class="tab" data-tab="import">导入</div>
 </div>
@@ -2487,7 +2488,7 @@
     <div class="todo-toolbar">
       <div class="todo-title">
         <h2>待办</h2>
-        <p>从记忆桶里的 followup / todo 派生；标完成只改待办表，写回时才归档到 followup_log。</p>
+        <p>从记忆桶里的 followup / todo 派生；标完成只改待办表，不改原记忆桶，已完成不会再进入 handoff。</p>
       </div>
       <div class="todo-actions">
         <button type="button" class="filter-btn active" data-todo-status="open" onclick="setTodoStatusFilter('open')">未完成</button>
@@ -2659,26 +2660,6 @@
       </div>
       <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">默认关闭；规则哨兵仍会挡轻闲聊，开启后灰区才额外调用小模型判 search / tone_only / skip</div>
       <div class="config-row">
-        <label>主域哨兵</label>
-        <select id="cfg-domain-sentinel-enabled">
-          <option value="true">开启</option>
-          <option value="false">关闭</option>
-        </select>
-      </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">hook recall 只让它判断开哪些域，不让它决定有没有记忆</div>
-      <div class="config-row">
-        <label>主域模型</label>
-        <input type="text" id="cfg-domain-sentinel-model" placeholder="Qwen/Qwen3.5-4B" />
-      </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">可填 THUDM/GLM-4-9B-0414、Qwen/Qwen3-8B；失败会回到规则分类</div>
-      <div class="config-row">
-        <label>主域思考</label>
-        <select id="cfg-domain-sentinel-thinking">
-          <option value="false">关闭</option>
-          <option value="true">开启</option>
-        </select>
-      </div>
-      <div class="config-row">
         <label>旧记忆随机</label>
         <select id="cfg-query-resurface-enabled">
           <option value="false">关闭</option>
@@ -2727,6 +2708,72 @@
       <button class="btn-secondary" onclick="saveConfig(true, true)">应用并保存密钥到 .env</button>
     </div>
     <div id="memory-config-status" style="margin-top:16px;font-size:13px;"></div>
+  </div>
+</div>
+
+<div class="content" id="model-config-view" style="display:none">
+  <div style="max-width:760px;margin:0 auto;">
+    <div class="config-section">
+      <h3>召回模型</h3>
+      <div class="config-row">
+        <label>主域哨兵</label>
+        <select id="cfg-domain-sentinel-enabled">
+          <option value="true">开启</option>
+          <option value="false">关闭</option>
+        </select>
+      </div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">hook recall 只让它判断开哪些域，不让它决定有没有记忆</div>
+      <div class="config-row">
+        <label>主域模型</label>
+        <input type="text" id="cfg-domain-sentinel-model" placeholder="Qwen/Qwen3.5-4B" />
+      </div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">可填 THUDM/GLM-4-9B-0414、Qwen/Qwen3-8B；失败会回到规则分类</div>
+      <div class="config-row">
+        <label>主域思考</label>
+        <select id="cfg-domain-sentinel-thinking">
+          <option value="false">关闭</option>
+          <option value="true">开启</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="config-section">
+      <h3>自动记忆模型</h3>
+      <div class="config-row">
+        <label>候选模型</label>
+        <input type="text" id="cfg-reflection-candidate-model" placeholder="Qwen/Qwen3.5-4B" />
+      </div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">小模型只抽候选；最终怎么写仍交给整理模型</div>
+      <div class="config-row">
+        <label>候选思考</label>
+        <select id="cfg-reflection-candidate-thinking">
+          <option value="disabled">关闭</option>
+          <option value="enabled">开启</option>
+          <option value="">跟随整理模型</option>
+        </select>
+      </div>
+      <div class="config-row">
+        <label>整理模型</label>
+        <input type="text" id="cfg-reflection-model" placeholder="留空复用 Persona/脱水模型" />
+      </div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">用于最终决定写什么、怎么写、写到哪个主域</div>
+      <div class="config-row">
+        <label>Base URL</label>
+        <input type="text" id="cfg-reflection-url" placeholder="留空复用 Persona/脱水地址" />
+      </div>
+      <div class="config-row">
+        <label>API Key</label>
+        <input type="password" id="cfg-reflection-key" placeholder="当前: 加载中…" />
+      </div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">留空不改；点击“保存密钥到 .env”后重启仍保留</div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:8px;">
+      <button class="btn-primary" onclick="saveConfig(false)">应用（仅运行时）</button>
+      <button class="btn-secondary" onclick="saveConfig(true)">应用并写入 config.yaml</button>
+      <button class="btn-secondary" onclick="saveConfig(true, true)">应用并保存密钥到 .env</button>
+    </div>
+    <div id="model-config-status" style="margin-top:16px;font-size:13px;"></div>
   </div>
 </div>
 
@@ -3197,19 +3244,6 @@
       </div>
       <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">默认 0；0 表示按日期读取当天全部原文，只影响自动记忆候选</div>
       <div class="config-row">
-        <label>候选模型</label>
-        <input type="text" id="cfg-reflection-candidate-model" placeholder="Qwen/Qwen3.5-4B" />
-      </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">小模型只抽候选；最终怎么写仍交给整理模型</div>
-      <div class="config-row">
-        <label>候选思考</label>
-        <select id="cfg-reflection-candidate-thinking">
-          <option value="disabled">关闭</option>
-          <option value="enabled">开启</option>
-          <option value="">跟随整理模型</option>
-        </select>
-      </div>
-      <div class="config-row">
         <label>普通记忆和弦</label>
         <select id="cfg-reflection-memory-anchor"><option value="true">开启</option><option value="false">关闭</option></select>
       </div>
@@ -3219,19 +3253,6 @@
         <select id="cfg-reflection-weather-anchor"><option value="true">开启</option><option value="false">关闭</option></select>
       </div>
       <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">控制日印象/关系天气正文里的 affect_anchor</div>
-      <div class="config-row">
-        <label>Model</label>
-        <input type="text" id="cfg-reflection-model" placeholder="留空复用 Persona/脱水模型" />
-      </div>
-      <div class="config-row">
-        <label>Base URL</label>
-        <input type="text" id="cfg-reflection-url" placeholder="留空复用 Persona/脱水地址" />
-      </div>
-      <div class="config-row">
-        <label>API Key</label>
-        <input type="password" id="cfg-reflection-key" placeholder="当前: 加载中…" />
-      </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">留空不改；点击“保存密钥到 .env”后重启仍保留</div>
     </div>
 
     <div class="config-section">
@@ -3466,6 +3487,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('network-view').style.display = target === 'network' ? '' : 'none';
     document.getElementById('config-view').style.display = target === 'config' ? '' : 'none';
     document.getElementById('upstream-config-view').style.display = target === 'upstream-config' ? '' : 'none';
+    document.getElementById('model-config-view').style.display = target === 'model-config' ? '' : 'none';
     document.getElementById('import-view').style.display = target === 'import' ? '' : 'none';
     if (target === 'todos') loadTodos();
     if (target === 'breath') loadGatewayInjections();
@@ -3482,6 +3504,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (target === 'network') loadNetwork();
     if (target === 'config') loadConfig();
     if (target === 'upstream-config') loadConfig();
+    if (target === 'model-config') loadConfig();
     if (target === 'import') { pollImportStatus(); loadImportResults(); }
   });
 });
@@ -3602,7 +3625,6 @@ function renderTodoItem(todo) {
   var meta = [
     todo.date || 'recent',
     todoStatusLabel(status),
-    todo.writeback_at ? '已写回' : '',
   ].filter(Boolean).join(' · ');
   var actions = [];
   if (bucketId) {
@@ -3613,9 +3635,6 @@ function renderTodoItem(todo) {
     actions.push('<button type="button" onclick="updateTodoStatus(\'' + jsString(id) + '\', \'ignored\')">忽略</button>');
   } else {
     actions.push('<button type="button" onclick="updateTodoStatus(\'' + jsString(id) + '\', \'open\')">重新打开</button>');
-  }
-  if (status === 'done') {
-    actions.push('<button type="button" ' + (todo.writeback_at ? 'disabled ' : '') + 'onclick="writebackTodo(\'' + jsString(id) + '\')">写回桶</button>');
   }
   return '<div class="todo-item ' + escAttr(status) + '">' +
     '<div class="todo-item-header">' +
@@ -3640,23 +3659,6 @@ async function updateTodoStatus(id, status) {
   } catch (e) {
     var target = document.getElementById('todo-status');
     if (target) target.textContent = '更新失败: ' + e.message;
-  }
-}
-
-async function writebackTodo(id) {
-  try {
-    var res = await authFetch(BASE + '/api/todos/' + encodeURIComponent(id) + '/writeback', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({}),
-    });
-    if (!res) return;
-    if (!res.ok) throw new Error((await res.json().catch(function() { return {}; })).error || '写回失败');
-    await loadTodos();
-    await loadBuckets({ skipProfileRefresh: true });
-  } catch (e) {
-    var target = document.getElementById('todo-status');
-    if (target) target.textContent = '写回失败: ' + e.message;
   }
 }
 
@@ -7283,7 +7285,7 @@ async function loadConfig() {
 }
 
 function setConfigStatus(html) {
-  ['config-status', 'memory-config-status', 'upstream-config-status'].forEach(function(id) {
+  ['config-status', 'memory-config-status', 'upstream-config-status', 'model-config-status'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.innerHTML = html;
   });
@@ -7379,12 +7381,8 @@ async function saveConfig(persist, persistEnv) {
       daily_conversation_turn_limit: numberValue('cfg-reflection-daily-turns', 0),
       daily_chat_memory_mode: document.getElementById('cfg-reflection-chat-memory-mode').value || 'auto',
       daily_chat_memory_turn_limit: numberValue('cfg-reflection-chat-memory-turns', 0),
-      daily_chat_memory_candidate_model: document.getElementById('cfg-reflection-candidate-model').value,
-      daily_chat_memory_candidate_thinking_mode: document.getElementById('cfg-reflection-candidate-thinking').value,
       memory_affect_anchor_enabled: document.getElementById('cfg-reflection-memory-anchor').value === 'true',
       relationship_weather_affect_anchor_enabled: document.getElementById('cfg-reflection-weather-anchor').value === 'true',
-      model: document.getElementById('cfg-reflection-model').value,
-      base_url: document.getElementById('cfg-reflection-url').value,
     };
     candidate.portrait = {
       enabled: document.getElementById('cfg-portrait-enabled').value === 'true',
@@ -7409,6 +7407,19 @@ async function saveConfig(persist, persistEnv) {
       candidate.gateway = { upstreams: upstreamsResult.upstreams };
     }
   }
+  if (activeTarget === 'model-config') {
+    candidate.gateway = {
+      domain_sentinel_enabled: document.getElementById('cfg-domain-sentinel-enabled').value === 'true',
+      domain_sentinel_model: document.getElementById('cfg-domain-sentinel-model').value,
+      domain_sentinel_enable_thinking: document.getElementById('cfg-domain-sentinel-thinking').value === 'true',
+    };
+    candidate.reflection = {
+      daily_chat_memory_candidate_model: document.getElementById('cfg-reflection-candidate-model').value,
+      daily_chat_memory_candidate_thinking_mode: document.getElementById('cfg-reflection-candidate-thinking').value,
+      model: document.getElementById('cfg-reflection-model').value,
+      base_url: document.getElementById('cfg-reflection-url').value,
+    };
+  }
   if (activeTarget === 'memory-config') {
     candidate.gateway = {
       cooldown_hours: floatValue('cfg-gateway-cooldown', 6),
@@ -7427,9 +7438,6 @@ async function saveConfig(persist, persistEnv) {
       word_map_hint_enabled: document.getElementById('cfg-word-map-hint-enabled').value === 'true',
       query_planner_enabled: document.getElementById('cfg-query-planner-enabled').value === 'true',
       memory_sentinel_llm_enabled: document.getElementById('cfg-memory-sentinel-llm-enabled').value === 'true',
-      domain_sentinel_enabled: document.getElementById('cfg-domain-sentinel-enabled').value === 'true',
-      domain_sentinel_model: document.getElementById('cfg-domain-sentinel-model').value,
-      domain_sentinel_enable_thinking: document.getElementById('cfg-domain-sentinel-thinking').value === 'true',
     };
     candidate.recall = {
       query_resurface_enabled: document.getElementById('cfg-query-resurface-enabled').value === 'true',
@@ -7500,7 +7508,7 @@ async function saveConfig(persist, persistEnv) {
     body.persona.api_key = personaKeyVal;
   }
   var reflectionKeyVal = document.getElementById('cfg-reflection-key').value;
-  if (reflectionKeyVal) {
+  if (activeTarget === 'model-config' && reflectionKeyVal) {
     if (!body.reflection) body.reflection = {};
     body.reflection.api_key = reflectionKeyVal;
   }

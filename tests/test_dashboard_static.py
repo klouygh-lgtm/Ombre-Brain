@@ -268,9 +268,11 @@ def test_dashboard_exposes_todo_page():
     assert "loadTodos()" in tab_block
     assert "BASE + '/api/todos?status='" in todo_block
     assert "BASE + '/api/todos/' + encodeURIComponent(id)" in html
-    assert "'/writeback'" in html
     assert "标完成" in html
-    assert "写回桶" in html
+    assert "不改原记忆桶" in html
+    assert "已完成不会再进入 handoff" in html
+    assert "写回桶" not in html
+    assert "writebackTodo" not in html
 
 
 def test_dashboard_keeps_compact_legacy_filter_row_and_compatible_filters():
@@ -487,20 +489,26 @@ def test_dashboard_exposes_reflection_affect_anchor_switches():
     assert 'id="cfg-reflection-model"' in html
     assert 'id="cfg-reflection-url"' in html
     assert 'id="cfg-reflection-key"' in html
+    assert 'data-tab="model-config"' in html
+    assert 'id="model-config-view"' in html
+    assert "<h3>自动记忆模型</h3>" in html
     assert "cfg.reflection.enabled" in load_block
     assert "cfg.reflection.auto_enabled" in load_block
     assert "cfg.reflection.memory_affect_anchor_enabled" in load_block
     assert "cfg.reflection.relationship_weather_affect_anchor_enabled" in load_block
     assert "cfg.reflection.daily_chat_memory_candidate_model" in load_block
     assert "cfg.reflection.daily_chat_memory_candidate_thinking_mode" in load_block
-    reflection_block = save_block.split("candidate.reflection = {", 1)[1].split("};", 1)[0]
-    assert "base_url: document.getElementById('cfg-reflection-url').value," in reflection_block
-    assert "enabled: document.getElementById('cfg-reflection-enabled').value === 'true'," in reflection_block
-    assert "model: document.getElementById('cfg-reflection-model').value," in reflection_block
-    assert "daily_chat_memory_candidate_model: document.getElementById('cfg-reflection-candidate-model').value," in reflection_block
-    assert "daily_chat_memory_candidate_thinking_mode: document.getElementById('cfg-reflection-candidate-thinking').value," in reflection_block
+    config_block = save_block.split("if (activeTarget === 'config')", 1)[1].split("if (activeTarget === 'upstream-config')", 1)[0]
+    model_block = save_block.split("if (activeTarget === 'model-config')", 1)[1].split("if (activeTarget === 'memory-config')", 1)[0]
+    assert "enabled: document.getElementById('cfg-reflection-enabled').value === 'true'," in config_block
+    assert "memory_affect_anchor_enabled: document.getElementById('cfg-reflection-memory-anchor').value === 'true'," in config_block
+    assert "base_url: document.getElementById('cfg-reflection-url').value," in model_block
+    assert "model: document.getElementById('cfg-reflection-model').value," in model_block
+    assert "daily_chat_memory_candidate_model: document.getElementById('cfg-reflection-candidate-model').value," in model_block
+    assert "daily_chat_memory_candidate_thinking_mode: document.getElementById('cfg-reflection-candidate-thinking').value," in model_block
     assert "if (!body.reflection) body.reflection = {};" in html
     assert "body.reflection.api_key = reflectionKeyVal;" in html
+    assert "activeTarget === 'model-config' && reflectionKeyVal" in html
 
 
 def test_dashboard_exposes_chat_memory_tab_module():

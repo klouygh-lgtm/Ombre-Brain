@@ -498,7 +498,7 @@ gateway:
 
 - `prompt_cache: "openai"` 和 `prompt_cache_retention: "24h"`：OpenAI prompt cache 提示。Gateway 会给上游请求加 `prompt_cache_key` 和 `prompt_cache_retention`。
 - `prompt_cache: "anthropic"`：只在 `protocol: "anthropic"` 上游生效，会给原生 Messages 请求加顶层 `cache_control: {"type": "ephemeral"}`；`prompt_cache_retention: "1h"` 会改成 1 小时 TTL。官方 Anthropic 或支持顶层 `cache_control` 的中转站用这个。
-- `prompt_cache: "anthropic_explicit"`：给只认旧式显式缓存断点的中转站用。这个模式不会加顶层 `cache_control`，而是优先把 `cache_control` 挂到 `system` 的最后一个 content block 上；没有 `system` 时，挂到当前最新 user message 之前的最后一条历史消息上。这样缓存断点尽量落在稳定前缀末尾。
+- `prompt_cache: "anthropic_explicit"`：给只认旧式显式缓存断点的中转站用。这个模式不会加顶层 `cache_control`，而是优先把 `cache_control` 挂到 `system` 的最后一个 content block 上；历史对话只有在稳定前缀达到模型最低缓存阈值，且当前尾部仍保留约 4000 token 时，才把断点挂到当前最新 user message 之前的 assistant 消息上。
 
 中转站如果要求 Anthropic 原生协议、但只支持显式断点，可以这样写：
 

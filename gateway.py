@@ -5123,7 +5123,11 @@ class GatewayService:
             payload["cache_control"] = cache_control
             return
 
-        self._apply_explicit_anthropic_cache_control(payload, cache_control)
+        self._apply_explicit_anthropic_cache_control(
+            payload,
+            cache_control,
+            model=str(payload.get("model") or ""),
+        )
 
     def _anthropic_cache_control(self, upstream: dict[str, Any]) -> dict[str, str]:
         cache_control: dict[str, str] = {"type": "ephemeral"}
@@ -5140,6 +5144,7 @@ class GatewayService:
         self,
         payload: dict[str, Any],
         cache_control: dict[str, str],
+        model: str = "",
     ) -> None:
         self._attach_cache_control_to_anthropic_content(payload, "system", cache_control)
         self._attach_cache_control_to_anthropic_tools(payload, cache_control)
@@ -5147,13 +5152,79 @@ class GatewayService:
         if not isinstance(messages, list):
             return
 
-        for message in reversed(messages[:-1]):
-            if not isinstance(message, dict):
+        breakpoint_index = self._find_cache_breakpoint(messages, model=model)
+        if breakpoint_index is None:
+            return
+        message = messages[breakpoint_index]
+        if isinstance(message, dict):
+            self._attach_cache_control_to_anthropic_content(message, "content", cache_control)
+
+    @staticmethod
+    def _cache_min_tokens_for_model(model: str) -> int:
+        lowered = str(model or "").lower()
+        if "sonnet" in lowered:
+            return 2048
+        return 4096
+
+    @staticmethod
+    def _cache_tail_tokens_for_model(model: str) -> int:
+        return 4000
+
+    def _find_cache_breakpoint(self, messages: list[Any], *, model: str = "") -> int | None:
+        if not isinstance(messages, list) or len(messages) < 3:
+            return None
+        min_tokens = self._cache_min_tokens_for_model(model)
+        tail_target = self._cache_tail_tokens_for_model(model)
+        estimates = [
+            self._anthropic_message_token_estimate(message)
+            if isinstance(message, dict)
+            else count_tokens_approx(str(message or ""))
+            for message in messages
+        ]
+        prefix_tokens = sum(estimates)
+        tail_tokens = 0
+        for index in range(len(messages) - 2, -1, -1):
+            tail_tokens += estimates[index + 1]
+            prefix_tokens -= estimates[index + 1]
+            message = messages[index]
+            if not isinstance(message, dict) or message.get("role") != "assistant":
                 continue
-            if message.get("role") != "assistant":
-                continue
-            if self._attach_cache_control_to_anthropic_content(message, "content", cache_control):
-                break
+            if prefix_tokens >= min_tokens and tail_tokens >= tail_target:
+                return index
+        return None
+
+    def _anthropic_message_token_estimate(self, message: dict[str, Any]) -> int:
+        if not isinstance(message, dict):
+            return 0
+        return count_tokens_approx(
+            " ".join(
+                part
+                for part in (
+                    str(message.get("role") or ""),
+                    self._anthropic_content_text(message.get("content")),
+                )
+                if part
+            )
+        )
+
+    def _anthropic_content_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    text = block.get("text")
+                    if text is not None:
+                        parts.append(str(text))
+                    else:
+                        parts.append(json.dumps(block, ensure_ascii=False, sort_keys=True, default=str))
+            return "\n".join(parts)
+        if content is None:
+            return ""
+        return json.dumps(content, ensure_ascii=False, sort_keys=True, default=str)
 
     def _attach_cache_control_to_anthropic_tools(
         self,
