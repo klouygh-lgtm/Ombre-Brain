@@ -2725,41 +2725,38 @@
       <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">hook recall 只让它判断开哪些域，不让它决定有没有记忆</div>
       <div class="config-row">
         <label>主域模型</label>
-        <input type="text" id="cfg-domain-sentinel-model" placeholder="Qwen/Qwen3.5-4B" />
+        <input type="text" id="cfg-domain-sentinel-model" placeholder="Qwen/Qwen3-8B" />
       </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">可填 THUDM/GLM-4-9B-0414、Qwen/Qwen3-8B；失败会回到规则分类</div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">默认 Qwen/Qwen3-8B；失败会回到规则分类；思考强制关闭</div>
       <div class="config-row">
-        <label>主域思考</label>
-        <select id="cfg-domain-sentinel-thinking">
-          <option value="false">关闭</option>
-          <option value="true">开启</option>
-        </select>
+        <label>Base URL</label>
+        <input type="text" id="cfg-domain-sentinel-url" placeholder="留空复用 Embedding 地址" />
       </div>
+      <div class="config-row">
+        <label>API Key</label>
+        <input type="password" id="cfg-domain-sentinel-key" placeholder="当前: 加载中…" />
+      </div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">留空复用 Embedding 配置；点击“保存密钥到 .env”后重启仍保留</div>
     </div>
 
     <div class="config-section">
       <h3>自动记忆模型</h3>
       <div class="config-row">
-        <label>候选模型</label>
-        <input type="text" id="cfg-reflection-candidate-model" placeholder="Qwen/Qwen3.5-4B" />
+        <label>模型</label>
+        <input type="text" id="cfg-reflection-model" placeholder="留空复用 Embedding/Persona/脱水模型" />
       </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">小模型只抽候选；最终怎么写仍交给整理模型</div>
+      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">同一个模型负责候选和整理；用于决定写什么、怎么写、写到哪个主域</div>
       <div class="config-row">
-        <label>候选思考</label>
-        <select id="cfg-reflection-candidate-thinking">
+        <label>思考</label>
+        <select id="cfg-reflection-thinking">
+          <option value="">跟随模型默认</option>
           <option value="disabled">关闭</option>
           <option value="enabled">开启</option>
-          <option value="">跟随整理模型</option>
         </select>
       </div>
       <div class="config-row">
-        <label>整理模型</label>
-        <input type="text" id="cfg-reflection-model" placeholder="留空复用 Persona/脱水模型" />
-      </div>
-      <div style="margin-top:-4px;margin-bottom:12px;padding-left:122px;font-size:11px;color:var(--text-light);">用于最终决定写什么、怎么写、写到哪个主域</div>
-      <div class="config-row">
         <label>Base URL</label>
-        <input type="text" id="cfg-reflection-url" placeholder="留空复用 Persona/脱水地址" />
+        <input type="text" id="cfg-reflection-url" placeholder="留空复用 Embedding 地址" />
       </div>
       <div class="config-row">
         <label>API Key</label>
@@ -3395,7 +3392,7 @@ function showAuthOverlay(setupNeeded) {
 }
 
 function clearAuthSensitiveFields(password) {
-  ['auth-login-pwd', 'auth-setup-pwd', 'auth-setup-pwd2', 'cfg-dehy-key', 'cfg-emb-key', 'cfg-persona-key', 'cfg-reflection-key', 'cfg-dream-key'].forEach(function(id) {
+  ['auth-login-pwd', 'auth-setup-pwd', 'auth-setup-pwd2', 'cfg-dehy-key', 'cfg-emb-key', 'cfg-persona-key', 'cfg-domain-sentinel-key', 'cfg-reflection-key', 'cfg-dream-key'].forEach(function(id) {
     var input = document.getElementById(id);
     if (input) input.value = '';
   });
@@ -7208,8 +7205,11 @@ async function loadConfig() {
       (cfg.gateway && cfg.gateway.domain_sentinel_enabled) === false ? 'false' : 'true';
     document.getElementById('cfg-domain-sentinel-model').value =
       (cfg.gateway && cfg.gateway.domain_sentinel_model) || '';
-    document.getElementById('cfg-domain-sentinel-thinking').value =
-      (cfg.gateway && cfg.gateway.domain_sentinel_enable_thinking) ? 'true' : 'false';
+    document.getElementById('cfg-domain-sentinel-url').value =
+      (cfg.gateway && cfg.gateway.domain_sentinel_base_url) || '';
+    document.getElementById('cfg-domain-sentinel-key').placeholder =
+      '当前: ' + ((cfg.gateway && cfg.gateway.domain_sentinel_api_key_masked) || ((cfg.gateway && cfg.gateway.domain_sentinel_api_ready) ? '***' : '复用 Embedding/未设置'));
+    document.getElementById('cfg-domain-sentinel-key').value = '';
     document.getElementById('cfg-query-resurface-enabled').value =
       (cfg.recall && cfg.recall.query_resurface_enabled) ? 'true' : 'false';
     var diffusion = cfg.memory_diffusion || {};
@@ -7234,15 +7234,12 @@ async function loadConfig() {
       (cfg.reflection && cfg.reflection.daily_chat_memory_mode) || 'auto';
     document.getElementById('cfg-reflection-chat-memory-turns').value =
       (cfg.reflection && cfg.reflection.daily_chat_memory_turn_limit) ?? 0;
-    document.getElementById('cfg-reflection-candidate-model').value =
-      (cfg.reflection && cfg.reflection.daily_chat_memory_candidate_model) || '';
-    document.getElementById('cfg-reflection-candidate-thinking').value =
-      (cfg.reflection && cfg.reflection.daily_chat_memory_candidate_thinking_mode) || 'disabled';
     document.getElementById('cfg-reflection-memory-anchor').value =
       (cfg.reflection && cfg.reflection.memory_affect_anchor_enabled) === false ? 'false' : 'true';
     document.getElementById('cfg-reflection-weather-anchor').value =
       (cfg.reflection && cfg.reflection.relationship_weather_affect_anchor_enabled) === false ? 'false' : 'true';
     document.getElementById('cfg-reflection-model').value = (cfg.reflection && cfg.reflection.model) || '';
+    document.getElementById('cfg-reflection-thinking').value = (cfg.reflection && cfg.reflection.thinking_mode) || '';
     document.getElementById('cfg-reflection-url').value = (cfg.reflection && cfg.reflection.base_url) || '';
     document.getElementById('cfg-reflection-key').placeholder =
       '当前: ' + ((cfg.reflection && cfg.reflection.api_key_masked) || ((cfg.reflection && cfg.reflection.api_ready) ? '***' : '未设置'));
@@ -7411,12 +7408,11 @@ async function saveConfig(persist, persistEnv) {
     candidate.gateway = {
       domain_sentinel_enabled: document.getElementById('cfg-domain-sentinel-enabled').value === 'true',
       domain_sentinel_model: document.getElementById('cfg-domain-sentinel-model').value,
-      domain_sentinel_enable_thinking: document.getElementById('cfg-domain-sentinel-thinking').value === 'true',
+      domain_sentinel_base_url: document.getElementById('cfg-domain-sentinel-url').value,
     };
     candidate.reflection = {
-      daily_chat_memory_candidate_model: document.getElementById('cfg-reflection-candidate-model').value,
-      daily_chat_memory_candidate_thinking_mode: document.getElementById('cfg-reflection-candidate-thinking').value,
       model: document.getElementById('cfg-reflection-model').value,
+      thinking_mode: document.getElementById('cfg-reflection-thinking').value,
       base_url: document.getElementById('cfg-reflection-url').value,
     };
   }
@@ -7506,6 +7502,11 @@ async function saveConfig(persist, persistEnv) {
   if (personaKeyVal) {
     if (!body.persona) body.persona = {};
     body.persona.api_key = personaKeyVal;
+  }
+  var domainSentinelKeyVal = document.getElementById('cfg-domain-sentinel-key').value;
+  if (activeTarget === 'model-config' && domainSentinelKeyVal) {
+    if (!body.gateway) body.gateway = {};
+    body.gateway.domain_sentinel_api_key = domainSentinelKeyVal;
   }
   var reflectionKeyVal = document.getElementById('cfg-reflection-key').value;
   if (activeTarget === 'model-config' && reflectionKeyVal) {

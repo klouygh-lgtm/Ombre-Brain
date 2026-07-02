@@ -370,8 +370,10 @@ gateway:
   memory_sentinel_model: ""         # empty = use dehydration.model via dehydration API
   memory_sentinel_context_turns: 3   # recent same-session turns for vague followups
   domain_sentinel_enabled: true      # only opens likely domains + query; never decides should_recall
-  domain_sentinel_model: "Qwen/Qwen3.5-4B" # free small classifier; alternatives: THUDM/GLM-4-9B-0414, Qwen/Qwen3-8B
-  domain_sentinel_enable_thinking: false   # send enable_thinking=false for Qwen-style classifiers
+  domain_sentinel_model: "Qwen/Qwen3-8B" # fast classifier; thinking is always disabled
+  domain_sentinel_base_url: ""       # empty = reuse embedding.base_url
+  # domain_sentinel_api_key: ""      # empty = OMBRE_DOMAIN_SENTINEL_API_KEY or embedding.api_key
+  domain_sentinel_enable_thinking: false   # forced false
   domain_sentinel_max_tokens: 260
   date_persona_trace_enabled: true   # date words like 昨天/昨晚 add small same-day persona/original-turn trace
   date_persona_trace_budget: 220
@@ -615,7 +617,7 @@ persona:
   #   OMBRE_PERSONA_MODEL
 
 # --- Reflection worker / 关系天气与记忆关系 ---
-# Defaults to persona model config. Set these only when reflection should use a separate model/key.
+# Defaults to embedding model config, then persona/dehydration. Set these only when reflection should use a separate model/key.
 reflection:
   enabled: true
   auto_enabled: true
@@ -626,10 +628,10 @@ reflection:
   enrich_backfill_enabled: true      # hourly scheduler backfills missing tags/confidence/edges
   enrich_backfill_limit: 5           # max buckets to backfill per scheduler tick
   edge_backfill_limit: 5             # default limit for manual edge_backfill; only writes memory_edges
-  base_url: ""                    # empty = persona.base_url
-  model: ""                       # empty = persona.model
-  thinking_mode: ""               # empty = persona.thinking_mode
-  # api_key: ""                   # empty = persona.api_key; OMBRE_REFLECTION_API_KEY overrides
+  base_url: ""                    # empty = embedding.base_url
+  model: ""                       # empty = persona/dehydration model
+  thinking_mode: ""               # empty = model default; disabled/enabled can force Qwen-style thinking
+  # api_key: ""                   # empty = OMBRE_REFLECTION_API_KEY or embedding.api_key
   temperature: 0.1
   max_tokens: 700
   timezone: "Asia/Shanghai"
@@ -640,8 +642,6 @@ reflection:
   daily_chat_memory_hour: 0        # organize the previous day's Gateway chats after local midnight
   daily_chat_memory_turn_limit: 0  # 0 = use all raw_events for that date; >0 caps restored turns
   daily_chat_memory_max_per_day: 3 # conservative cap for selected long-term memory candidates
-  daily_chat_memory_candidate_model: "Qwen/Qwen3.5-4B" # cheap candidate extraction; reflection.model remains the stronger organizer
-  daily_chat_memory_candidate_thinking_mode: "disabled"
   persona_events_limit: 12         # selected and deduped; persona events supplement daily weather only
   persona_events_scan_limit: 80
   weekly_enabled: false            # weekly impressions are off by default; daily impressions remain

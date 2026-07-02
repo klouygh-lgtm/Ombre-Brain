@@ -656,6 +656,7 @@ class GatewayService:
         self.config = config
         self.identity = identity_names(config)
         self.gateway_cfg = config.get("gateway", {})
+        self.embedding_cfg = config.get("embedding", {}) if isinstance(config.get("embedding", {}), dict) else {}
         self.bucket_mgr = bucket_mgr or BucketManager(config)
         self.dehydrator = dehydrator or Dehydrator(config)
         self.embedding_engine = embedding_engine or EmbeddingEngine(config)
@@ -751,16 +752,25 @@ class GatewayService:
             True,
         )
         self.domain_sentinel_model = str(
-            self.gateway_cfg.get("domain_sentinel_model") or "Qwen/Qwen3.5-4B"
+            self.gateway_cfg.get("domain_sentinel_model") or "Qwen/Qwen3-8B"
+        ).strip()
+        self.domain_sentinel_base_url = str(
+            self.gateway_cfg.get("domain_sentinel_base_url")
+            or self.embedding_cfg.get("base_url")
+            or ""
+        ).strip().rstrip("/")
+        self.domain_sentinel_api_key = str(
+            os.environ.get("OMBRE_DOMAIN_SENTINEL_API_KEY", "")
+            or self.gateway_cfg.get("domain_sentinel_api_key", "")
+            or os.environ.get("OMBRE_EMBEDDING_API_KEY", "")
+            or self.embedding_cfg.get("api_key", "")
+            or ""
         ).strip()
         self.domain_sentinel_max_tokens = max(
             128,
             min(800, int(self.gateway_cfg.get("domain_sentinel_max_tokens", 260))),
         )
-        self.domain_sentinel_enable_thinking = self._bool_config_value(
-            self.gateway_cfg.get("domain_sentinel_enable_thinking"),
-            False,
-        )
+        self.domain_sentinel_enable_thinking = False
         self.dynamic_top_k = int(self.gateway_cfg.get("dynamic_top_k", 10))
         self.semantic_candidate_top_k = max(
             self.dynamic_top_k,
@@ -1020,6 +1030,10 @@ class GatewayService:
                 "memory_sentinel_context_turns": self.memory_sentinel_context_turns,
                 "domain_sentinel_enabled": self.domain_sentinel_enabled,
                 "domain_sentinel_model": self.domain_sentinel_model,
+                "domain_sentinel_base_url": self.domain_sentinel_base_url,
+                "domain_sentinel_api_ready": bool(
+                    self.domain_sentinel_base_url and self.domain_sentinel_api_key
+                ),
                 "domain_sentinel_enable_thinking": self.domain_sentinel_enable_thinking,
                 "domain_sentinel_max_tokens": self.domain_sentinel_max_tokens,
                 "date_persona_trace_enabled": self.date_persona_trace_enabled,
@@ -1093,6 +1107,10 @@ class GatewayService:
             "memory_sentinel_context_turns": self.memory_sentinel_context_turns,
             "domain_sentinel_enabled": self.domain_sentinel_enabled,
             "domain_sentinel_model": self.domain_sentinel_model,
+            "domain_sentinel_base_url": self.domain_sentinel_base_url,
+            "domain_sentinel_api_ready": bool(
+                self.domain_sentinel_base_url and self.domain_sentinel_api_key
+            ),
             "domain_sentinel_enable_thinking": self.domain_sentinel_enable_thinking,
             "domain_sentinel_max_tokens": self.domain_sentinel_max_tokens,
             "date_persona_trace_enabled": self.date_persona_trace_enabled,
@@ -1480,12 +1498,16 @@ class GatewayService:
             self.domain_sentinel_model = str(payload["domain_sentinel_model"] or "").strip()
             self.gateway_cfg["domain_sentinel_model"] = self.domain_sentinel_model
             updated.append("gateway.domain_sentinel_model")
+        if "domain_sentinel_base_url" in payload:
+            self.domain_sentinel_base_url = str(payload["domain_sentinel_base_url"] or "").strip().rstrip("/")
+            self.gateway_cfg["domain_sentinel_base_url"] = self.domain_sentinel_base_url
+            updated.append("gateway.domain_sentinel_base_url")
+        if "domain_sentinel_api_key" in payload and payload["domain_sentinel_api_key"]:
+            self.domain_sentinel_api_key = str(payload["domain_sentinel_api_key"] or "").strip()
+            self.gateway_cfg["domain_sentinel_api_key"] = self.domain_sentinel_api_key
+            updated.append("gateway.domain_sentinel_api_key")
         if "domain_sentinel_enable_thinking" in payload:
-            self.domain_sentinel_enable_thinking = self._bool_config_value(
-                payload["domain_sentinel_enable_thinking"],
-                False,
-            )
-            self.gateway_cfg["domain_sentinel_enable_thinking"] = self.domain_sentinel_enable_thinking
+            self.gateway_cfg["domain_sentinel_enable_thinking"] = False
             updated.append("gateway.domain_sentinel_enable_thinking")
         if "domain_sentinel_max_tokens" in payload:
             self.domain_sentinel_max_tokens = max(
@@ -11661,6 +11683,9 @@ class GatewayService:
         debug = self._domain_sentinel_rule_plan(query)
         if not self.domain_sentinel_enabled or not self.domain_sentinel_model:
             return debug
+        if not self.domain_sentinel_base_url or not self.domain_sentinel_api_key:
+            debug["errors"].append("domain_sentinel_api_not_configured")
+            return debug
 
         payload = {
             "model": self.domain_sentinel_model,
@@ -11681,12 +11706,18 @@ class GatewayService:
             "max_tokens": self.domain_sentinel_max_tokens,
             "stream": False,
             "response_format": {"type": "json_object"},
+            "enable_thinking": False,
         }
-        if not self.domain_sentinel_enable_thinking:
-            payload["enable_thinking"] = False
 
         try:
-            response = await self._forward_upstream(payload)
+            response = await self.http_client.post(
+                f"{self.domain_sentinel_base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.domain_sentinel_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
             if response.status_code >= 400:
                 debug["errors"].append(f"domain_sentinel_upstream_status:{response.status_code}")
                 return debug

@@ -10909,6 +10909,29 @@ async def api_config_get(request):
     reflection_cfg = config.get("reflection", {}) if isinstance(config.get("reflection", {}), dict) else {}
     portrait_cfg = config.get("portrait", {}) if isinstance(config.get("portrait", {}), dict) else {}
     self_anchor_cfg = config.get("self_anchor", {}) if isinstance(config.get("self_anchor", {}), dict) else {}
+    domain_sentinel_base_url = str(
+        gateway_cfg.get("domain_sentinel_base_url") or emb.get("base_url") or ""
+    ).strip()
+    domain_sentinel_api_key = str(
+        os.environ.get("OMBRE_DOMAIN_SENTINEL_API_KEY", "")
+        or gateway_cfg.get("domain_sentinel_api_key", "")
+        or os.environ.get("OMBRE_EMBEDDING_API_KEY", "")
+        or emb.get("api_key", "")
+        or ""
+    )
+    reflection_base_url = str(
+        reflection_cfg.get("base_url") or emb.get("base_url") or persona_cfg.get("base_url") or dehy.get("base_url") or ""
+    ).strip()
+    reflection_api_key = str(
+        os.environ.get("OMBRE_REFLECTION_API_KEY", "")
+        or reflection_cfg.get("api_key", "")
+        or os.environ.get("OMBRE_EMBEDDING_API_KEY", "")
+        or emb.get("api_key", "")
+        or persona_cfg.get("api_key", "")
+        or os.environ.get("OMBRE_PERSONA_API_KEY", "")
+        or dehy.get("api_key", "")
+        or ""
+    )
     return JSONResponse({
         "dehydration": {
             "model": dehy.get("model", ""),
@@ -10954,11 +10977,12 @@ async def api_config_get(request):
             "memory_sentinel_model": gateway_cfg.get("memory_sentinel_model", ""),
             "memory_sentinel_context_turns": gateway_cfg.get("memory_sentinel_context_turns", 3),
             "domain_sentinel_enabled": _bool_value(gateway_cfg.get("domain_sentinel_enabled"), True),
-            "domain_sentinel_model": gateway_cfg.get("domain_sentinel_model", "Qwen/Qwen3.5-4B"),
-            "domain_sentinel_enable_thinking": _bool_value(
-                gateway_cfg.get("domain_sentinel_enable_thinking"),
-                False,
-            ),
+            "domain_sentinel_model": gateway_cfg.get("domain_sentinel_model") or "Qwen/Qwen3-8B",
+            "domain_sentinel_base_url": str(gateway_cfg.get("domain_sentinel_base_url") or ""),
+            "domain_sentinel_effective_base_url": domain_sentinel_base_url,
+            "domain_sentinel_api_key_masked": _mask_key(domain_sentinel_api_key),
+            "domain_sentinel_api_ready": bool(domain_sentinel_base_url and domain_sentinel_api_key),
+            "domain_sentinel_enable_thinking": False,
             "domain_sentinel_max_tokens": gateway_cfg.get("domain_sentinel_max_tokens", 260),
             "current_inner_state_interval_rounds": gateway_cfg.get("current_inner_state_interval_rounds", 0),
             "direct_render_mode": _normalize_direct_render_mode(gateway_cfg.get("direct_render_mode", "auto")),
@@ -11103,24 +11127,12 @@ async def api_config_get(request):
                     getattr(reflection_engine, "daily_chat_memory_max_per_day", 3),
                 )
             ),
-            "daily_chat_memory_candidate_model": str(
-                reflection_cfg.get(
-                    "daily_chat_memory_candidate_model",
-                    getattr(reflection_engine, "daily_chat_memory_candidate_model", ""),
-                )
-                or ""
-            ),
-            "daily_chat_memory_candidate_thinking_mode": str(
-                reflection_cfg.get(
-                    "daily_chat_memory_candidate_thinking_mode",
-                    getattr(reflection_engine, "daily_chat_memory_candidate_thinking_mode", "disabled"),
-                )
-                or "disabled"
-            ),
             "model": getattr(reflection_engine, "model", reflection_cfg.get("model", "")),
-            "base_url": getattr(reflection_engine, "base_url", reflection_cfg.get("base_url", "")),
-            "api_key_masked": _mask_key(getattr(reflection_engine, "api_key", "") or reflection_cfg.get("api_key", "")),
-            "api_ready": bool(getattr(reflection_engine, "api_key", "") or reflection_cfg.get("api_key", "")),
+            "thinking_mode": str(reflection_cfg.get("thinking_mode") or getattr(reflection_engine, "thinking_mode", "") or ""),
+            "base_url": str(reflection_cfg.get("base_url") or ""),
+            "effective_base_url": getattr(reflection_engine, "base_url", reflection_base_url),
+            "api_key_masked": _mask_key(getattr(reflection_engine, "api_key", "") or reflection_api_key),
+            "api_ready": bool(getattr(reflection_engine, "api_key", "") or reflection_api_key),
         },
         "portrait": {
             "enabled": bool(portrait_cfg.get("enabled", getattr(portrait_engine, "enabled", True))),
@@ -11322,6 +11334,16 @@ async def api_config_update(request):
         g = body["gateway"]
         gateway_cfg = config.setdefault("gateway", {})
         gateway_hot_update_body = {}
+        domain_sentinel_touched = any(
+            key in g
+            for key in (
+                "domain_sentinel_enabled",
+                "domain_sentinel_model",
+                "domain_sentinel_base_url",
+                "domain_sentinel_api_key",
+                "domain_sentinel_enable_thinking",
+            )
+        )
         if "upstreams" in g:
             try:
                 sanitized_upstreams = _dashboard_sanitize_gateway_upstreams(
@@ -11428,15 +11450,19 @@ async def api_config_update(request):
             gateway_cfg["domain_sentinel_model"] = str(g["domain_sentinel_model"] or "").strip()
             gateway_hot_update_body["domain_sentinel_model"] = gateway_cfg["domain_sentinel_model"]
             updated.append("gateway.domain_sentinel_model")
-        if "domain_sentinel_enable_thinking" in g:
-            gateway_cfg["domain_sentinel_enable_thinking"] = _bool_value(
-                g["domain_sentinel_enable_thinking"],
-                False,
-            )
-            gateway_hot_update_body["domain_sentinel_enable_thinking"] = gateway_cfg[
-                "domain_sentinel_enable_thinking"
-            ]
-            updated.append("gateway.domain_sentinel_enable_thinking")
+        if "domain_sentinel_base_url" in g:
+            gateway_cfg["domain_sentinel_base_url"] = str(g["domain_sentinel_base_url"] or "").strip()
+            gateway_hot_update_body["domain_sentinel_base_url"] = gateway_cfg["domain_sentinel_base_url"]
+            updated.append("gateway.domain_sentinel_base_url")
+        if "domain_sentinel_api_key" in g and g["domain_sentinel_api_key"]:
+            gateway_cfg["domain_sentinel_api_key"] = str(g["domain_sentinel_api_key"])
+            os.environ["OMBRE_DOMAIN_SENTINEL_API_KEY"] = gateway_cfg["domain_sentinel_api_key"]
+            env_updates["OMBRE_DOMAIN_SENTINEL_API_KEY"] = gateway_cfg["domain_sentinel_api_key"]
+            gateway_hot_update_body["domain_sentinel_api_key"] = gateway_cfg["domain_sentinel_api_key"]
+            updated.append("gateway.domain_sentinel_api_key")
+        if domain_sentinel_touched:
+            gateway_cfg["domain_sentinel_enable_thinking"] = False
+            gateway_hot_update_body["domain_sentinel_enable_thinking"] = False
         if "domain_sentinel_max_tokens" in g:
             gateway_cfg["domain_sentinel_max_tokens"] = _int_between(
                 g["domain_sentinel_max_tokens"],
@@ -11647,19 +11673,12 @@ async def api_config_update(request):
                 10,
             )
             updated.append("reflection.daily_chat_memory_max_per_day")
-        if "daily_chat_memory_candidate_model" in r:
-            reflection_cfg["daily_chat_memory_candidate_model"] = str(
-                r["daily_chat_memory_candidate_model"] or ""
-            ).strip()
-            updated.append("reflection.daily_chat_memory_candidate_model")
-        if "daily_chat_memory_candidate_thinking_mode" in r:
-            candidate_thinking = str(
-                r.get("daily_chat_memory_candidate_thinking_mode") or "disabled"
-            ).strip().lower()
-            if candidate_thinking not in {"", "enabled", "disabled"}:
-                candidate_thinking = "disabled"
-            reflection_cfg["daily_chat_memory_candidate_thinking_mode"] = candidate_thinking or "disabled"
-            updated.append("reflection.daily_chat_memory_candidate_thinking_mode")
+        if "thinking_mode" in r:
+            thinking_mode = str(r.get("thinking_mode") or "").strip().lower()
+            if thinking_mode not in {"", "enabled", "disabled"}:
+                thinking_mode = ""
+            reflection_cfg["thinking_mode"] = thinking_mode
+            updated.append("reflection.thinking_mode")
         if "api_key" in r and r["api_key"]:
             reflection_cfg["api_key"] = str(r["api_key"])
             os.environ["OMBRE_REFLECTION_API_KEY"] = reflection_cfg["api_key"]
@@ -11669,8 +11688,6 @@ async def api_config_update(request):
             os.environ["OMBRE_REFLECTION_BASE_URL"] = reflection_cfg["base_url"]
         if "model" in r and reflection_cfg.get("model"):
             os.environ["OMBRE_REFLECTION_MODEL"] = reflection_cfg["model"]
-        if "daily_chat_memory_candidate_model" in r and reflection_cfg.get("daily_chat_memory_candidate_model"):
-            os.environ["OMBRE_REFLECTION_CANDIDATE_MODEL"] = reflection_cfg["daily_chat_memory_candidate_model"]
         reflection_engine = ReflectionEngine(config)
 
     # --- Portrait maintainer config ---
@@ -11827,6 +11844,15 @@ async def api_config_update(request):
 
             if "gateway" in body:
                 sc_gateway = save_config.setdefault("gateway", {})
+                domain_sentinel_touched = any(
+                    key in body["gateway"]
+                    for key in (
+                        "domain_sentinel_enabled",
+                        "domain_sentinel_model",
+                        "domain_sentinel_base_url",
+                        "domain_sentinel_enable_thinking",
+                    )
+                )
                 if "upstreams" in body["gateway"]:
                     sc_gateway["upstreams"] = _dashboard_sanitize_gateway_upstreams(
                         body["gateway"]["upstreams"],
@@ -11902,11 +11928,12 @@ async def api_config_update(request):
                     sc_gateway["domain_sentinel_model"] = str(
                         body["gateway"]["domain_sentinel_model"] or ""
                     ).strip()
-                if "domain_sentinel_enable_thinking" in body["gateway"]:
-                    sc_gateway["domain_sentinel_enable_thinking"] = _bool_value(
-                        body["gateway"]["domain_sentinel_enable_thinking"],
-                        False,
-                    )
+                if "domain_sentinel_base_url" in body["gateway"]:
+                    sc_gateway["domain_sentinel_base_url"] = str(
+                        body["gateway"]["domain_sentinel_base_url"] or ""
+                    ).strip()
+                if domain_sentinel_touched:
+                    sc_gateway["domain_sentinel_enable_thinking"] = False
                 if "domain_sentinel_max_tokens" in body["gateway"]:
                     sc_gateway["domain_sentinel_max_tokens"] = _int_between(
                         body["gateway"]["domain_sentinel_max_tokens"],
@@ -12087,17 +12114,11 @@ async def api_config_update(request):
                         0,
                         10,
                     )
-                if "daily_chat_memory_candidate_model" in body["reflection"]:
-                    sc_reflection["daily_chat_memory_candidate_model"] = str(
-                        body["reflection"].get("daily_chat_memory_candidate_model") or ""
-                    ).strip()
-                if "daily_chat_memory_candidate_thinking_mode" in body["reflection"]:
-                    candidate_thinking = str(
-                        body["reflection"].get("daily_chat_memory_candidate_thinking_mode") or "disabled"
-                    ).strip().lower()
-                    if candidate_thinking not in {"", "enabled", "disabled"}:
-                        candidate_thinking = "disabled"
-                    sc_reflection["daily_chat_memory_candidate_thinking_mode"] = candidate_thinking or "disabled"
+                if "thinking_mode" in body["reflection"]:
+                    thinking_mode = str(body["reflection"].get("thinking_mode") or "").strip().lower()
+                    if thinking_mode not in {"", "enabled", "disabled"}:
+                        thinking_mode = ""
+                    sc_reflection["thinking_mode"] = thinking_mode
                 # Never persist api_key to yaml (use env var)
 
             if "portrait" in body:

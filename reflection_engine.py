@@ -252,6 +252,7 @@ class ReflectionEngine:
         self.config = config
         self.identity = identity_names(config)
         cfg = config.get("reflection", {}) if isinstance(config.get("reflection", {}), dict) else {}
+        emb_cfg = config.get("embedding", {}) if isinstance(config.get("embedding", {}), dict) else {}
         persona_cfg = config.get("persona", {}) if isinstance(config.get("persona", {}), dict) else {}
         dehy_cfg = config.get("dehydration", {}) if isinstance(config.get("dehydration", {}), dict) else {}
 
@@ -266,17 +267,28 @@ class ReflectionEngine:
         self.identity_role_edge_config = self._load_identity_role_edge_config(
             cfg.get("identity_role_edges")
         )
-        self.base_url = cfg.get("base_url") or persona_cfg.get("base_url") or dehy_cfg.get("base_url", "")
-        self.model = cfg.get("model") or persona_cfg.get("model") or dehy_cfg.get("model", "deepseek-chat")
+        legacy_candidate_model = str(cfg.get("daily_chat_memory_candidate_model") or "").strip()
+        self.base_url = (
+            cfg.get("base_url")
+            or emb_cfg.get("base_url")
+            or persona_cfg.get("base_url")
+            or dehy_cfg.get("base_url", "")
+        )
+        self.model = cfg.get("model") or legacy_candidate_model or persona_cfg.get("model") or dehy_cfg.get("model", "deepseek-chat")
         self.api_key = (
             os.environ.get("OMBRE_REFLECTION_API_KEY", "")
             or cfg.get("api_key", "")
+            or os.environ.get("OMBRE_EMBEDDING_API_KEY", "")
+            or emb_cfg.get("api_key", "")
             or persona_cfg.get("api_key", "")
             or os.environ.get("OMBRE_PERSONA_API_KEY", "")
             or dehy_cfg.get("api_key", "")
         )
         self.thinking_mode = self._normalize_thinking_mode(
-            cfg.get("thinking_mode") or persona_cfg.get("thinking_mode") or ""
+            cfg.get("thinking_mode")
+            or cfg.get("daily_chat_memory_candidate_thinking_mode")
+            or persona_cfg.get("thinking_mode")
+            or ""
         )
         self.temperature = float(cfg.get("temperature", 0.1))
         self.max_tokens = int(cfg.get("max_tokens", 700))
@@ -316,12 +328,8 @@ class ReflectionEngine:
         self.daily_chat_memory_turn_limit = max(0, min(10000, int(cfg.get("daily_chat_memory_turn_limit", 0))))
         self.daily_chat_memory_max_per_day = max(0, min(10, int(cfg.get("daily_chat_memory_max_per_day", 3))))
         self.daily_chat_memory_min_confidence = float(cfg.get("daily_chat_memory_min_confidence", 0.68))
-        self.daily_chat_memory_candidate_model = str(
-            cfg.get("daily_chat_memory_candidate_model") or self.model
-        ).strip()
-        self.daily_chat_memory_candidate_thinking_mode = self._normalize_thinking_mode(
-            cfg.get("daily_chat_memory_candidate_thinking_mode", "disabled")
-        )
+        self.daily_chat_memory_candidate_model = str(self.model or "").strip()
+        self.daily_chat_memory_candidate_thinking_mode = self.thinking_mode
         state_dir = config.get("state_dir") or os.path.join(
             os.path.dirname(os.path.abspath(config.get("buckets_dir", "buckets"))),
             "state",
@@ -1561,7 +1569,7 @@ class ReflectionEngine:
             }
             try:
                 response = await self.client.chat.completions.create(
-                    model=self.daily_chat_memory_candidate_model or self.model,
+                    model=self.model,
                     messages=[
                         {"role": "system", "content": self._daily_chat_memory_prompt()},
                         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -1569,7 +1577,7 @@ class ReflectionEngine:
                     **self._completion_options(
                         max_tokens=min(self.max_tokens, 700),
                         temperature=self.temperature,
-                        thinking_mode=self.daily_chat_memory_candidate_thinking_mode,
+                        thinking_mode=self.thinking_mode,
                     ),
                 )
                 raw = response.choices[0].message.content if response.choices else ""

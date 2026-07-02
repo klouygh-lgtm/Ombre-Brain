@@ -3559,6 +3559,42 @@ async def test_config_get_reports_effective_dream_engine_values(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_config_get_domain_sentinel_reuses_embedding_by_default(monkeypatch):
+    import server
+
+    monkeypatch.setattr(server, "_require_dashboard_auth", lambda request: None)
+    monkeypatch.delenv("OMBRE_DOMAIN_SENTINEL_API_KEY", raising=False)
+    monkeypatch.delenv("OMBRE_EMBEDDING_API_KEY", raising=False)
+    monkeypatch.setattr(
+        server,
+        "config",
+        {
+            **server.config,
+            "embedding": {
+                **server.config.get("embedding", {}),
+                "base_url": "https://embedding.example/v1",
+                "api_key": "embedding-secret",
+            },
+            "gateway": {
+                **server.config.get("gateway", {}),
+                "domain_sentinel_model": "",
+                "domain_sentinel_base_url": "",
+            },
+        },
+    )
+
+    response = await server.api_config_get(DummyRequest())
+    payload = json.loads(response.body)
+
+    assert payload["gateway"]["domain_sentinel_model"] == "Qwen/Qwen3-8B"
+    assert payload["gateway"]["domain_sentinel_base_url"] == ""
+    assert payload["gateway"]["domain_sentinel_effective_base_url"] == "https://embedding.example/v1"
+    assert payload["gateway"]["domain_sentinel_api_key_masked"] == "embe...cret"
+    assert payload["gateway"]["domain_sentinel_api_ready"] is True
+    assert payload["gateway"]["domain_sentinel_enable_thinking"] is False
+
+
+@pytest.mark.asyncio
 async def test_config_get_reports_persona_and_reflection_api_values(monkeypatch):
     import server
 
@@ -3611,7 +3647,8 @@ async def test_config_get_reports_persona_and_reflection_api_values(monkeypatch)
     assert payload["reflection"]["enabled"] is True
     assert payload["reflection"]["auto_enabled"] is False
     assert payload["reflection"]["model"] == "reflection-model"
-    assert payload["reflection"]["base_url"] == "https://reflection.example"
+    assert payload["reflection"]["base_url"] == ""
+    assert payload["reflection"]["effective_base_url"] == "https://reflection.example"
     assert payload["reflection"]["api_key_masked"] == "refl...cret"
 
 
@@ -4078,6 +4115,7 @@ async def test_config_update_persists_llm_keys_to_env_file(monkeypatch, test_con
         "OMBRE_EMBEDDING_API_KEY",
         "OMBRE_PERSONA_API_KEY",
         "OMBRE_REFLECTION_API_KEY",
+        "OMBRE_DOMAIN_SENTINEL_API_KEY",
         "OMBRE_DREAM_API_KEY",
         "OMBRE_PORTRAIT_API_KEY",
     ):
@@ -4104,6 +4142,11 @@ async def test_config_update_persists_llm_keys_to_env_file(monkeypatch, test_con
                     "model": "reflection-new",
                     "base_url": "https://reflection-new.example",
                     "api_key": "reflection-new-key",
+                },
+                "gateway": {
+                    "domain_sentinel_model": "Qwen/Qwen3-8B",
+                    "domain_sentinel_base_url": "https://sentinel-new.example/v1",
+                    "domain_sentinel_api_key": "sentinel-new-key",
                 },
                 "dream": {
                     "enabled": False,
@@ -4135,6 +4178,7 @@ async def test_config_update_persists_llm_keys_to_env_file(monkeypatch, test_con
     assert "OMBRE_EMBEDDING_API_KEY=emb-new" in env_text
     assert "OMBRE_PERSONA_API_KEY=persona-new-key" in env_text
     assert "OMBRE_REFLECTION_API_KEY=reflection-new-key" in env_text
+    assert "OMBRE_DOMAIN_SENTINEL_API_KEY=sentinel-new-key" in env_text
     assert "OMBRE_DREAM_API_KEY=dream-new-key" in env_text
     assert "OMBRE_PORTRAIT_API_KEY=portrait-new-key" in env_text
     assert "UNCHANGED=value" in env_text
@@ -4143,6 +4187,10 @@ async def test_config_update_persists_llm_keys_to_env_file(monkeypatch, test_con
     assert hot_update_calls[-1]["persona"]["enabled"] is False
     assert hot_update_calls[-1]["persona"]["event_recording_enabled"] is False
     assert hot_update_calls[-1]["persona"]["api_key"] == "persona-new-key"
+    assert hot_update_calls[-1]["gateway"]["domain_sentinel_model"] == "Qwen/Qwen3-8B"
+    assert hot_update_calls[-1]["gateway"]["domain_sentinel_base_url"] == "https://sentinel-new.example/v1"
+    assert hot_update_calls[-1]["gateway"]["domain_sentinel_api_key"] == "sentinel-new-key"
+    assert hot_update_calls[-1]["gateway"]["domain_sentinel_enable_thinking"] is False
 
 
 @pytest.mark.asyncio

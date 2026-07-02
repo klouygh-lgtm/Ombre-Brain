@@ -5216,7 +5216,9 @@ def test_gateway_hook_recall_domain_sentinel_only_routes_domains(
         related_memory_budget=0,
         current_inner_state_interval_rounds=0,
         domain_sentinel_enabled=True,
-        domain_sentinel_model="Qwen/Qwen3.5-4B",
+        domain_sentinel_model="Qwen/Qwen3-8B",
+        domain_sentinel_base_url="https://sentinel.example/v1",
+        domain_sentinel_api_key="sentinel-secret",
     )
 
     def responder(_body, _request, _captured):
@@ -5263,8 +5265,9 @@ def test_gateway_hook_recall_domain_sentinel_only_routes_domains(
 
     assert response.status_code == 200
     payload = response.json()
-    assert captured[0]["json"]["model"] == "Qwen/Qwen3.5-4B"
+    assert captured[0]["json"]["model"] == "Qwen/Qwen3-8B"
     assert captured[0]["json"]["enable_thinking"] is False
+    assert captured[0]["auth"] == "Bearer sentinel-secret"
     assert payload["debug"]["domains"] == ["relationship"]
     assert payload["debug"]["query"] == "火焰 意象 小雨 Haven"
     assert "should_recall" not in payload["debug"]
