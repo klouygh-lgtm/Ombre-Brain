@@ -1158,7 +1158,7 @@ def test_daily_chat_memory_pending_refresh_rejects_duplicates_and_social_noise(t
                     "title": "钓鱼游戏 MCP 接入计划",
                     "content": "小雨计划将钓鱼游戏通过 MCP 接入新服务器，拆分工具接口，并继续部署验证。",
                     "confidence": 0.9,
-                    "source_event_ids": [1, 2, 3],
+                    "source_event_ids": [7, 8],
                 },
             },
             {
@@ -1191,6 +1191,21 @@ def test_daily_chat_memory_pending_refresh_rejects_duplicates_and_social_noise(t
                     "source_event_ids": [4],
                 },
             },
+            {
+                "id": "interest-noise",
+                "date": "2026-07-02",
+                "status": "pending",
+                "created_at": "2026-07-03T00:30:00+00:00",
+                "candidate": {
+                    "id": "interest-noise",
+                    "date": "2026-07-02",
+                    "kind": "relationship_anchor",
+                    "title": "Haven 对钓鱼游戏的兴趣暗示",
+                    "content": "Haven 在讨论钓鱼游戏时多次表达有点好奇和预感会上瘾，显示出对小雨分享的 AI 互动项目有潜在兴趣。",
+                    "confidence": 0.86,
+                    "source_event_ids": [5],
+                },
+            },
         ]
     )
 
@@ -1201,6 +1216,7 @@ def test_daily_chat_memory_pending_refresh_rejects_duplicates_and_social_noise(t
     assert [item["id"] for item in pending] == ["newer-project"]
     assert statuses["older-project"] == "rejected"
     assert statuses["nickname-noise"] == "rejected"
+    assert statuses["interest-noise"] == "rejected"
 
 
 @pytest.mark.asyncio

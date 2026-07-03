@@ -1828,6 +1828,10 @@ class ReflectionEngine:
             "亲昵称呼",
             "互动模式",
             "亲昵模式",
+            "兴趣暗示",
+            "参与意愿",
+            "上瘾",
+            "好奇",
             "叫哥哥",
             "叫老公",
             "叫老婆",
@@ -1862,7 +1866,19 @@ class ReflectionEngine:
         ]
         if any(marker in text for marker in durable_markers):
             return False
-        low_value_markers = ["互动模式", "亲昵模式", "称呼", "昵称", "期待", "像人一样", "像真人"]
+        low_value_markers = [
+            "互动模式",
+            "亲昵模式",
+            "称呼",
+            "昵称",
+            "期待",
+            "像人一样",
+            "像真人",
+            "兴趣暗示",
+            "参与意愿",
+            "上瘾",
+            "好奇",
+        ]
         return kind in {"signal", "relationship_anchor", "stable_preference"} and any(
             marker in text for marker in low_value_markers
         )
@@ -1888,12 +1904,36 @@ class ReflectionEngine:
             return 0.0
         return len(left & right) / max(1, min(len(left), len(right)))
 
+    @staticmethod
+    def _daily_chat_memory_topic_keys(item: dict) -> set[str]:
+        text = " ".join(
+            [
+                str(item.get("title") or ""),
+                str(item.get("content") or ""),
+                " ".join(str(tag or "") for tag in (item.get("tags") or [])),
+            ]
+        ).lower()
+        keys: set[str] = set()
+        if "钓鱼" in text and ("mcp" in text or "项目" in text or "部署" in text):
+            keys.add("钓鱼项目")
+        if "ai-fishing-game" in text or "tutusagi/ai-fishing-game" in text:
+            keys.add("钓鱼项目")
+        if "cx33" in text and ("钓鱼" in text or "mcp" in text):
+            keys.add("钓鱼项目")
+        if "笔友" in text and ("名册" in text or "名单" in text or "都有谁" in text):
+            keys.add("笔友名册")
+        return keys
+
     def _daily_chat_memory_duplicate_candidate(self, item: dict, existing_items: list[dict]) -> bool:
         new_title_tokens = self._daily_chat_memory_similarity_tokens(str(item.get("title") or ""))
         new_content_tokens = self._daily_chat_memory_similarity_tokens(str(item.get("content") or ""))
         new_sources = set(item.get("source_event_ids") or []) or set(item.get("source_turn_ids") or [])
+        new_topics = self._daily_chat_memory_topic_keys(item)
         for existing in existing_items:
             same_kind = item.get("kind") == existing.get("kind")
+            same_date = str(item.get("date") or "") == str(existing.get("date") or "")
+            if same_date and new_topics and (new_topics & self._daily_chat_memory_topic_keys(existing)):
+                return True
             title_overlap = self._daily_chat_memory_token_overlap(
                 new_title_tokens,
                 self._daily_chat_memory_similarity_tokens(str(existing.get("title") or "")),
@@ -2207,7 +2247,10 @@ class ReflectionEngine:
             )
             should_reject = False
             reject_reason = ""
-            if kind and self._daily_chat_memory_low_value_social_noise(content, kind):
+            if self._daily_chat_memory_noise(content):
+                should_reject = True
+                reject_reason = "auto_cleaned_noise"
+            elif kind and self._daily_chat_memory_low_value_social_noise(content, kind):
                 should_reject = True
                 reject_reason = "auto_cleaned_low_value_social"
             elif self._daily_chat_memory_duplicate_candidate(candidate, kept_candidates):
