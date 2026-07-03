@@ -2367,8 +2367,8 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .chat-memory-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 12px;
   }
   .chat-memory-card {
@@ -2458,7 +2458,6 @@
     .word-map-grid { grid-template-columns: 1fr; }
     .reflection-toolbar { align-items: flex-start; flex-direction: column; }
     .reflection-board { grid-template-columns: 1fr; }
-    .chat-memory-list { grid-template-columns: 1fr; }
     .reflection-day-panel { height: auto; max-height: none; }
     .reflection-entry { grid-template-columns: 1fr; }
   }

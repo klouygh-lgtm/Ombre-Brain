@@ -529,6 +529,8 @@ def test_dashboard_exposes_chat_memory_tab_module():
     assert "<h2>记忆候选</h2>" in html
     assert "chat-memory-board" in html
     assert "chat-memory-list" in html
+    assert ".chat-memory-list {\n    display: flex;\n    flex-direction: column;" in html
+    assert "repeat(auto-fit" not in html.split(".chat-memory-list", 1)[1].split(".chat-memory-card", 1)[0]
     assert "chat-memory-card" in module
     assert 'id="daily-chat-memory-date"' not in html
     assert 'id="daily-chat-memory-run-mode"' not in html
