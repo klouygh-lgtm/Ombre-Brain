@@ -6467,6 +6467,15 @@ def test_gateway_injection_debug_exposes_diffused_chain_bundle(
         "链路桥接阶段",
         "链路温度目标",
     ]
+    diffusion_trace = target_debug["diffusion_trace"]
+    assert diffusion_trace["seed"]["bucket_name"] == "链路种子项目"
+    assert diffusion_trace["target"]["bucket_name"] == "链路温度目标"
+    assert diffusion_trace["path_step_count"] == 2
+    assert diffusion_trace["path_trace"].count("context_of") == 2
+    assert diffusion_trace["gate"]["allowed"] is True
+    assert diffusion_trace["gate"]["reason"] == ""
+    assert diffusion_trace["final"]["status"] == "injected"
+    assert diffusion_trace["final"]["injected"] is True
     assert target_debug["temperature_context"][0]["section"] == "affect_anchor"
     assert target_debug["recall_why"]["status"] == "injected_diffused"
     assert target_debug["recall_why"]["stage"] == "diffusion_candidate"
@@ -6571,6 +6580,13 @@ def test_gateway_diffusion_explores_candidates_but_injects_best_two(
     assert low_debug["suppression_reason"] == "low_confidence"
     assert low_debug["why"] == "explicit_edge"
     assert low_debug["confidence"] == pytest.approx(0.35)
+    low_trace = low_debug["diffusion_trace"]
+    assert low_trace["seed"]["bucket_name"] == "种子项目"
+    assert low_trace["target"]["bucket_name"] == "低置信背景"
+    assert low_trace["gate"]["allowed"] is False
+    assert low_trace["gate"]["reason"] == "low_confidence"
+    assert low_trace["final"]["status"] == "suppressed"
+    assert low_trace["final"]["suppression_reason"] == "low_confidence"
 
 
 def test_gateway_bucket_edge_bridge_uses_direct_target_representative(

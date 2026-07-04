@@ -10153,6 +10153,8 @@ class GatewayService:
                 allowed, reason = False, "session_hard_exclude"
             else:
                 allowed, reason = self._diffusion_candidate_injection_decision(row, query_plan)
+            row["gate_allowed"] = allowed
+            row["gate_reason"] = "" if allowed else reason
             row["injectable"] = allowed
             row["suppression_reason"] = "" if allowed else reason
             row["injected"] = False
@@ -10505,6 +10507,7 @@ class GatewayService:
                 "suppression_reason": str(row.get("suppression_reason") or ""),
                 "has_topic_evidence": bool(row.get("has_topic_evidence")),
                 "reading_note": row.get("reading_note") if isinstance(row.get("reading_note"), dict) else {},
+                "diffusion_trace": self._format_diffusion_candidate_trace(row, moment_map),
             }
         )
         payload["recall_why"] = self._recall_why_debug(
@@ -10513,6 +10516,59 @@ class GatewayService:
             stage="diffusion_candidate",
         )
         return payload
+
+    def _format_diffusion_candidate_trace(
+        self,
+        row: dict[str, Any],
+        moment_map: dict[str, dict],
+    ) -> dict[str, Any]:
+        path = row.get("path")
+        path_nodes = tuple(str(node_id) for node_id in (getattr(path, "nodes", ()) or ()))
+        path_steps = tuple(getattr(path, "steps", ()) or ())
+        moment = row.get("moment") if isinstance(row.get("moment"), dict) else {}
+        target_id = str(row.get("moment_id") or moment.get("moment_id") or "")
+        target_node_id = path_nodes[-1] if path_nodes else target_id
+        seed_node_id = path_nodes[0] if path_nodes else ""
+        gate_allowed = bool(row.get("gate_allowed", row.get("injectable")))
+        gate_reason = str(row.get("gate_reason") or "")
+        suppression_reason = str(row.get("suppression_reason") or "")
+        injected = bool(row.get("injected"))
+        if injected:
+            final_status = "injected"
+        elif suppression_reason or not gate_allowed:
+            final_status = "suppressed"
+        else:
+            final_status = "eligible"
+
+        return {
+            "source": str(row.get("source") or ""),
+            "why": str(row.get("why") or ""),
+            "confidence": self._safe_float(row.get("confidence"), 0.0),
+            "activation": self._safe_float(row.get("activation"), 0.0),
+            "path_len": int(row.get("path_len") or 0),
+            "path_step_count": len(path_steps),
+            "path_trace": self._moment_path_summary(path, moment_map) if path is not None else "",
+            "seed": (
+                self._format_diffused_path_node_debug(seed_node_id, moment_map.get(seed_node_id))
+                if seed_node_id
+                else {}
+            ),
+            "target": self._format_diffused_path_node_debug(
+                target_node_id,
+                moment_map.get(target_node_id) or moment,
+            ),
+            "gate": {
+                "allowed": gate_allowed,
+                "reason": gate_reason,
+                "runtime_allowed": bool(row.get("runtime_allowed")),
+                "has_topic_evidence": bool(row.get("has_topic_evidence")),
+            },
+            "final": {
+                "status": final_status,
+                "injected": injected,
+                "suppression_reason": suppression_reason,
+            },
+        }
 
     def _diffusion_path_why(self, path: Any, target: dict, moment_map: dict[str, dict]) -> str:
         steps = tuple(getattr(path, "steps", ()) or ())
