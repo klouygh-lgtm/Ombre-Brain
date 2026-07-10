@@ -2048,7 +2048,7 @@
   .dream-row-static {
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto 20px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 14px;
     padding: 14px 18px;
@@ -2068,19 +2068,6 @@
   }
   .dream-row-title { color: var(--text); font-size: 14px; }
   .dream-row-status { color: var(--text-light); font-size: 12px; white-space: nowrap; }
-  .dream-row-chevron {
-    color: var(--text-light);
-    font-size: 16px;
-    line-height: 1;
-    text-align: center;
-    transition: transform 0.2s ease;
-  }
-  .dream-row.is-open .dream-row-chevron { transform: rotate(180deg); }
-  .dream-row-disappeared {
-    color: var(--text-light);
-    font-size: 11px;
-    white-space: nowrap;
-  }
   .dream-body {
     padding: 16px 18px 18px;
     border-top: 1px solid var(--border);
@@ -4547,14 +4534,12 @@ async function loadDreams() {
         return '<div class="dream-row"><div class="dream-row-static">' +
           '<div class="dream-row-title">' + title + '</div>' +
           '<div class="dream-row-status">' + dreamStatusLabel(record.status) + '</div>' +
-          '<div class="dream-row-disappeared">正文已消散</div>' +
         '</div></div>';
       }
       return '<div class="dream-row" data-dream-id="' + escAttr(record.dream_id) + '">' +
         '<button type="button" class="dream-row-toggle" aria-expanded="false" onclick="toggleDreamPeek(this)">' +
           '<span class="dream-row-title">' + title + '</span>' +
           '<span class="dream-row-status">' + dreamStatusLabel(record.status) + '</span>' +
-          '<span class="dream-row-chevron" aria-hidden="true">&#8964;</span>' +
         '</button>' +
         '<div class="dream-body" hidden></div>' +
       '</div>';
@@ -4584,12 +4569,12 @@ async function toggleDreamPeek(button) {
     var dreamId = row.getAttribute('data-dream-id') || '';
     var response = await authFetch(BASE + '/api/dreams/' + encodeURIComponent(dreamId));
     if (!response) return;
-    if (!response.ok) throw new Error('正文已消散');
+    if (!response.ok) throw new Error('暂时打不开');
     var data = await response.json();
-    body.textContent = data.body || '正文已消散';
+    body.textContent = data.body || '暂时打不开';
     row.dataset.dreamLoaded = 'true';
   } catch (e) {
-    body.textContent = '正文已消散';
+    body.textContent = '暂时打不开';
   }
 }
 
