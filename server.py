@@ -1110,7 +1110,7 @@ def _breath_query_requests_date_read(query: str) -> bool:
         "搜索",
         "记得",
         "记忆",
-        "做了什么",
+        "�����了什么",
         "发生",
         "什么事",
         "什么",
@@ -5026,7 +5026,7 @@ def _query_requests_direct_detail(query: str) -> bool:
         "整条",
         "整桶",
         "全部",
-        "当时怎么说",
+        "���时怎么说",
         "当时说了什么",
         "具体怎么说",
         "怎么写的",
@@ -5139,7 +5139,7 @@ def _format_related_moment(
     if caution:
         note = "路径含冲突/阻断，仅作边界背景。"
     elif path is not None and path_has_old_version(path):
-        note = "旧路径/旧版本背景，不代表当前事实。"
+        note = "������径/旧版本背景，不代表当前事实。"
     else:
         note = "背景联想，不代表当前事实。"
     if chain_bundle and path is not None and len(getattr(path, "steps", ()) or ()) >= 2:
@@ -7024,7 +7024,7 @@ async def breath(
     date: str = "",
     valence: float = -1,
     arousal: float = -1,
-    max_results: int = 20,
+    max_results: int = 10,
     include_related: bool = True,
     related_per_memory: int = 1,
     edge_min_confidence: float = 0.55,
@@ -7040,7 +7040,7 @@ async def breath(
 ) -> str:
     """只读检索记忆。查主题用 query；新窗口轻交接用 mode="handoff"；date 或 query 里的日期可查当天普通记忆；domain="feel"/"whisper" 读私密通道，domain="daily_impression" 才读日印象。日期支持 2026-06-15、2026.06.15、2026年6月15日、25年6月15日、6月15日。"""
     await decay_engine.ensure_started()
-    max_results = _int_between(max_results, 20, 1, 50)
+    max_results = _int_between(max_results, 10, 1, 50)
     max_tokens = _int_between(max_tokens, 10000, 0, 20000)
     include_related = _bool_value(include_related, True)
     related_per_memory = _int_between(related_per_memory, 1, 0, 5)
@@ -7840,7 +7840,7 @@ async def breath(
     if not response_parts:
         if recall_thresholds.get("has_explicit_entity") and suppressed_moments:
             return dream_block or "没有找到可靠命中。"
-        return dream_block or "未找到相关记忆。"
+        return dream_block or "未���到相关记忆。"
 
     response_text = "\n\n".join(response_parts)
     if dream_block:
@@ -8340,7 +8340,7 @@ async def darkroom_enter(
     lock_for: str = "",
     new_room: bool = True,
 ) -> dict:
-    """写入一段未显影的私密反思；默认第一人称，不用第三人称自述；默认新开房间，new_room=false 才续写当前 active 房间；写错要撤回已有房间时传 new_room=false + visibility="retracted"；不回显 note 正文。"""
+    """写入一段未显影的私密反思；默认第一人称，不用第三人称自述；默认新开房间，new_room=false 才续写当前 active 房间；写���要撤回已有房间时传 new_room=false + visibility="retracted"；不回显 note 正文。"""
     try:
         return darkroom_store.enter(
             note,
@@ -8863,8 +8863,8 @@ async def trace(
 # 工具 5：pulse — 脉搏，系统状态 + 记忆列表
 # =============================================================
 @mcp.tool()
-async def pulse(include_archive: bool = False) -> str:
-    """只读查看系统状态和记忆桶摘要；用于盘点和找 read_bucket/trace 候选。"""
+async def pulse(include_archive: bool = False, limit: int = 15) -> str:
+    """只读查看系统状态和记忆桶摘要；用于盘点和找 read_bucket/trace 候选。limit 控制普通桶最大显示数（pinned/protected 不计入）。"""
     try:
         stats = await bucket_mgr.get_stats()
     except Exception as e:
@@ -8894,10 +8894,17 @@ async def pulse(include_archive: bool = False) -> str:
     if not buckets:
         return status + "\n记忆库为空。"
 
+    limit = _int_between(limit, 15, 1, 200)
     lines = []
+    normal_count = 0
     for b in buckets:
         meta = b.get("metadata", {})
-        if meta.get("pinned") or meta.get("protected"):
+        is_priority = meta.get("pinned") or meta.get("protected")
+        if not is_priority:
+            normal_count += 1
+            if normal_count > limit:
+                continue
+        if is_priority:
             icon = "📌"
         elif meta.get("anchor"):
             icon = "⚓"
@@ -8929,7 +8936,8 @@ async def pulse(include_archive: bool = False) -> str:
             f"标签:{','.join(meta.get('tags', []))}"
         )
 
-    return status + "\n=== 记忆列表 ===\n" + "\n".join(lines)
+    truncated = f"\n（共 {len(buckets)} 个桶，显示 {len(lines)} 个，limit={limit}）" if normal_count > limit else ""
+    return status + "\n=== 记忆列表 ===\n" + "\n".join(lines) + truncated
 
 
 # =============================================================
@@ -8938,7 +8946,7 @@ async def pulse(include_archive: bool = False) -> str:
 #
 # Reads recent surface-level buckets (≤10), returns them for
 # Claude to introspect under prompt guidance.
-# 读取最近新增的表层桶（≤10个），返回给 Claude 在提示词引导下自主思考。
+# 读取最近新增的表层桶（≤10个），返回给 Claude 在提示词��导下��主思考。
 # Claude then decides: resolve some, write feels, or do nothing.
 # =============================================================
 @mcp.tool()
@@ -9227,7 +9235,7 @@ def _clean_profile_object(value: str) -> str:
     text = strip_wikilinks(str(value or "")).strip()
     text = re.sub(r"^[“\"'「『（(]+|[”\"'」』）)]+$", "", text)
     text = re.sub(r"\s+", "", text)
-    text = re.sub(r"(这件事|这个设定|这类东西|的时候)$", "", text)
+    text = re.sub(r"(这件事|这个设定|这���东西|的时候)$", "", text)
     return text[:32].strip("。；;，,、 ")
 
 
@@ -12966,7 +12974,7 @@ async def api_status(request):
 
 # =============================================================
 # Import API — conversation history import
-# 导入 API — 对话历史导入
+# 导入 API — 对话历史���入
 # =============================================================
 
 @mcp.custom_route("/api/import/upload", methods=["POST"])
