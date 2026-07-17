@@ -333,6 +333,8 @@ class BucketManager:
             post["anchor"] = bool(kwargs["anchor"])
         if "digested" in kwargs:
             post["digested"] = bool(kwargs["digested"])
+        if "sealed" in kwargs:
+            post["sealed"] = bool(kwargs["sealed"])
         if "model_valence" in kwargs:
             post["model_valence"] = max(0.0, min(1.0, float(kwargs["model_valence"])))
         if "source" in kwargs:
@@ -473,7 +475,7 @@ class BucketManager:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(frontmatter.dumps(post))
         except OSError as e:
-            logger.error(f"Failed to write bucket comment / 写入桶评论失败: {file_path}: {e}")
+            logger.error(f"Failed to write bucket comment / 写入���评论失败: {file_path}: {e}")
             return None
 
         if touch:
@@ -1258,10 +1260,11 @@ class BucketManager:
     # List all buckets
     # 列出所有桶
     # ---------------------------------------------------------
-    async def list_all(self, include_archive: bool = False) -> list[dict]:
+    async def list_all(self, include_archive: bool = False, include_sealed: bool = False) -> list[dict]:
         """
         Recursively walk directories (including domain subdirs), list all buckets.
         递归遍历目录（含域子目录），列出所有记忆桶。
+        include_sealed=False 时自动过滤 sealed 桶。
         """
         buckets = []
 
@@ -1279,6 +1282,9 @@ class BucketManager:
                     file_path = os.path.join(root, filename)
                     bucket = self._load_bucket(file_path)
                     if bucket:
+                        # --- 过滤 sealed 桶 ---
+                        if not include_sealed and bucket.get("metadata", {}).get("sealed"):
+                            continue
                         buckets.append(bucket)
 
         return buckets

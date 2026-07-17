@@ -20,6 +20,7 @@ services:
       - OMBRE_API_KEY=${OMBRE_API_KEY}      # From .env file / 从 .env 文件读取
       - OMBRE_TRANSPORT=streamable-http     # Claude.ai requires streamable-http
       - OMBRE_BUCKETS_DIR=/data             # Container-internal bucket path / 容器内路径
+      - OMBRE_SEAL=${OMBRE_SEAL}            # 记忆验真暗语 / Memory seal passphrase
     volumes:
       # Mount your Obsidian vault (or any host directory) for persistent storage
       # 挂载你的 Obsidian 仓库（或任意宿主机目录）做持久化存储

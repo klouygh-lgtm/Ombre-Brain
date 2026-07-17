@@ -1,0 +1,10 @@
+services:
+  ombre-brain:
+    volumes:
+      - /home/zhangzhang/ombre-data:/data
+      - /home/zhangzhang/ombre-state:/state
+      - ./config.yaml:/app/config.yaml
+    env_file:
+      - .env
+    ports:
+      - "18001:8000"
